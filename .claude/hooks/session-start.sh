@@ -6,6 +6,10 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
+# Pinned to the Ghidra release REA is built against. The download comes straight
+# from github.com: the GitHub API is not reachable from cloud sessions.
+GHIDRA_VERSION="12.1.4"
+GHIDRA_DATE="20260921"
 GHIDRA_SERIES="12.1"   # REA requires a Ghidra 12.1.x release
 GHIDRA_ROOT="/opt/ghidra"
 
@@ -13,16 +17,8 @@ GHIDRA_ROOT="/opt/ghidra"
 ghidra_dir="$(ls -d "$GHIDRA_ROOT"/ghidra_${GHIDRA_SERIES}*_PUBLIC 2>/dev/null | sort -V | tail -n1 || true)"
 
 if [ -z "$ghidra_dir" ]; then
-  echo "Installing Ghidra ${GHIDRA_SERIES}.x..." >&2
-  url="$(curl -fsSL --retry 3 "https://api.github.com/repos/NationalSecurityAgency/ghidra/releases?per_page=30" 2>/dev/null \
-    | python3 -c "
-import json, sys
-for r in json.load(sys.stdin):
-    if r['tag_name'].startswith('Ghidra_${GHIDRA_SERIES}') and not r['prerelease']:
-        for a in r['assets']:
-            if a['name'].endswith('.zip'):
-                print(a['browser_download_url']); sys.exit()
-" 2>/dev/null || true)"
+  echo "Installing Ghidra ${GHIDRA_VERSION}..." >&2
+  url="https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/ghidra_${GHIDRA_VERSION}_PUBLIC_${GHIDRA_DATE}.zip"
 
   if [ -n "$url" ]; then
     tmp="$(mktemp -d)"
