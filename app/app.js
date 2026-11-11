@@ -283,8 +283,11 @@ let stopWatch = null;
 
 function geoWatch(onPos) {
   if (!navigator.geolocation) { status('This device has no GPS location.', true); return () => {}; }
-  const id = navigator.geolocation.watchPosition((p) => onPos({ lat: p.coords.latitude, lon: p.coords.longitude }),
-    () => status('Turn on location to use driving mode.', true), { enableHighAccuracy: true, maximumAge: 2000 });
+  // The status line is hidden while driving, so GPS trouble is shown in the turn banner instead.
+  const id = navigator.geolocation.watchPosition((p) => onPos(lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }),
+    (e) => { $('navDist').textContent = 'No GPS'; $('navMsg').textContent = e.code === 1
+      ? 'Location is blocked. On iPhone: Settings > Chrome > Location > While Using, then reload.'
+      : 'Waiting for a GPS signal…'; }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
   return () => navigator.geolocation.clearWatch(id);
 }
 
@@ -297,6 +300,9 @@ function startDriving() {
   document.body.classList.add('navigating'); $('nav').hidden = false; map.invalidateSize();
   const truckPin = L.marker([steps[0].at.lat, steps[0].at.lon], { icon: pin('truck', '🚚'), zIndexOffset: 1000 }).addTo(routeLayer);
   let idx = 0, spoken = -1, warned = -1;
+  // Show the first turn right away instead of a blank banner while GPS warms up.
+  $('navDist').textContent = 'Finding you…'; $('navMsg').textContent = steps[0].msg;
+  $('navEta').textContent = `${fmtMiles(total)} · ${fmtTime(r.summary.travelTimeInSeconds)}`;
   const onPos = (pos) => {
     truckPin.setLatLng([pos.lat, pos.lon]);
     map.setView([pos.lat, pos.lon], globalThis.DEMO_ZOOM || 16, { animate: false });
