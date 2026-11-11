@@ -1,5 +1,5 @@
 import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restrictionsQuery,
-  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, keepLikely, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
+  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, keepLikely, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex, snapToLine, bearing } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 // Public map-data servers are often busy, so try each in turn.
@@ -242,7 +242,7 @@ let geoErr = null, fixAt = 0, meDot = null;
 navigator.geolocation?.watchPosition((p) => {
   lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }; fixAt = Date.now(); geoErr = null;
   if (!meDot) { // first fix: show the driver where they are
-    meDot = L.circleMarker([lastFix.lat, lastFix.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#2b6cb0', fillOpacity: 1 }).addTo(map);
+    meDot = L.circleMarker([lastFix.lat, lastFix.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#2b6cb0', fillOpacity: 1, className: 'me-dot' }).addTo(map);
     if (!routeLayer.getLayers().length) map.setView([lastFix.lat, lastFix.lon], 12);
   }
   else meDot.setLatLng([lastFix.lat, lastFix.lon]);
@@ -267,7 +267,8 @@ function showRoute(i) {
   routeLayer.clearLayers();
   routes.forEach((r, j) => {
     const pts = r.legs.flatMap((l) => l.points.map((p) => [p.latitude, p.longitude]));
-    const line = L.polyline(pts, j === i ? { color: '#0f2238', weight: 7 } : { color: '#8a99a8', weight: 5, opacity: 0.8 })
+    if (j === i) L.polyline(pts, { color: '#fff', weight: 11, opacity: 0.9, interactive: false }).addTo(routeLayer); // casing
+    const line = L.polyline(pts, j === i ? { color: '#1a73e8', weight: 7 } : { color: '#8a99a8', weight: 5, opacity: 0.8 })
       .on('click', () => showRoute(j)).addTo(routeLayer);
     if (j === i) { line.bringToFront(); map.fitBounds(line.getBounds(), { padding: [30, 30] }); }
   });
@@ -315,7 +316,7 @@ let stopWatch = null;
 function geoWatch(onPos) {
   if (!navigator.geolocation) { status('This device has no GPS location.', true); return () => {}; }
   // The status line is hidden while driving, so GPS trouble is shown in the turn banner instead.
-  const id = navigator.geolocation.watchPosition((p) => onPos(lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }),
+  const id = navigator.geolocation.watchPosition((p) => onPos(lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }, p.coords.speed),
     (e) => { $('navDist').textContent = 'No GPS'; $('navMsg').textContent = e.code === 1
       ? 'Location is blocked. On iPhone: Settings > Chrome > Location > While Using, then reload.'
       : 'Waiting for a GPS signal…'; }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
@@ -329,14 +330,35 @@ function startDriving() {
     .map((s) => ({ msg: s.message, off: s.routeOffsetInMeters, at: { lat: s.point.latitude, lon: s.point.longitude } }));
   if (!steps.length) { status('This route has no turn list.', true); return; }
   document.body.classList.add('navigating'); $('nav').hidden = false; map.invalidateSize();
-  const truckPin = L.marker([steps[0].at.lat, steps[0].at.lon], { icon: pin('truck', '🚚'), zIndexOffset: 1000 }).addTo(routeLayer);
+  const truckPin = L.marker([steps[0].at.lat, steps[0].at.lon], { icon: L.divIcon({ className: '', iconSize: null,
+    html: '<div class="pin truck"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 2 20 21 12 17 4 21z" fill="#fff"/></svg></div>' }), zIndexOffset: 1000 }).addTo(routeLayer);
+  const line = routeLine(r);
+  let shown = null, heading = 0, anim = 0;
+  // Glide the arrow to each new fix and keep the map moving with it, instead of jumping once a second.
+  const glide = (to, ms = 900) => {
+    const from = shown || to, t0 = performance.now();
+    cancelAnimationFrame(anim);
+    const step = (now) => {
+      const f = Math.min(1, (now - t0) / ms), p = [from.lat + (to.lat - from.lat) * f, from.lon + (to.lon - from.lon) * f];
+      truckPin.setLatLng(p); map.panTo(p, { animate: false });
+      shown = { lat: p[0], lon: p[1] };
+      if (f < 1) anim = requestAnimationFrame(step);
+    };
+    anim = requestAnimationFrame(step);
+  };
   let idx = 0, spoken = -1, warned = -1;
   // Show the first turn right away instead of a blank banner while GPS warms up.
   $('navDist').textContent = 'Finding you…'; $('navMsg').textContent = steps[0].msg;
   $('navEta').textContent = `${fmtMiles(total)} · ${fmtTime(r.summary.travelTimeInSeconds)}`;
-  const onPos = (pos) => {
-    truckPin.setLatLng([pos.lat, pos.lon]);
-    map.setView([pos.lat, pos.lon], globalThis.DEMO_ZOOM || 16, { animate: false });
+  const onPos = (raw, speed) => {
+    const snapped = snapToLine(raw, line), pos = snapped.dist < 50 ? snapped : raw; // off the route: show where they really are
+    // Turn the short way round (350° -> 10° is +20°, not -340°) so the arrow never spins.
+    if (shown && haversine(shown, pos) > 3) heading += ((bearing(shown, pos) - heading) % 360 + 540) % 360 - 180;
+    truckPin.getElement()?.firstChild?.style.setProperty('transform', `rotate(${heading}deg)`);
+    // Zoom out at highway speed so the next turn is on screen sooner.
+    const zoom = globalThis.DEMO_ZOOM || (speed > 20 ? 15 : speed > 9 ? 16 : 17);
+    if (!shown || map.getZoom() !== zoom) { map.setView([pos.lat, pos.lon], zoom, { animate: false }); shown = pos; truckPin.setLatLng([pos.lat, pos.lon]); }
+    else glide(pos);
     idx = nextStepIndex(steps, pos, idx);
     const d = haversine(pos, steps[idx].at), left = Math.max(0, total - steps[idx].off) + d;
     $('navDist').textContent = fmtDist(d);
@@ -345,7 +367,8 @@ function startDriving() {
     if (spoken !== idx) { spoken = idx; say(`In ${fmtDist(d).replace('mi', 'miles').replace('ft', 'feet')}, ${steps[idx].msg}`); }
     else if (d < 300 && warned !== idx) { warned = idx; say(steps[idx].msg); }
   };
-  stopWatch = (globalThis.simulateDrive || geoWatch)(onPos, routeLine(r));
+  const stop = (globalThis.simulateDrive || geoWatch)(onPos, line);
+  stopWatch = () => { stop(); cancelAnimationFrame(anim); };
 }
 
 function endDriving() {

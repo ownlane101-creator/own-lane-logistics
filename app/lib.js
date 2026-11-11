@@ -116,6 +116,29 @@ export function decodePolyline6(str) {
   return out;
 }
 
+// "Drive north on I 83 North/Veterans of Foreign Wars … Highway." -> "Drive north on I-83 North."
+export const tidyTurn = (t = '') => t.replace(/\/[^,.;]+/g, '').replace(/\b(I|US|SR|PA|MD|VA|NJ|NY|OH) (\d+)/g, '$1-$2');
+
+// Nearest point on the route to a GPS fix, so the truck rides the road instead of wobbling beside it.
+export function snapToLine(pos, line) {
+  const k = Math.cos(pos.lat * Math.PI / 180), M = 111320;
+  let best = { lat: pos.lat, lon: pos.lon, dist: Infinity, i: 0 };
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1], b = line[i];
+    const ax = (a.lon - pos.lon) * k, ay = a.lat - pos.lat, bx = (b.lon - pos.lon) * k, by = b.lat - pos.lat;
+    const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
+    const x = ax + t * dx, y = ay + t * dy, dist = Math.hypot(x, y) * M;
+    if (dist < best.dist) best = { lat: pos.lat + y, lon: pos.lon + x / k, dist, i };
+  }
+  return best;
+}
+export const bearing = (a, b) => {
+  const r = Math.PI / 180, y = Math.sin((b.lon - a.lon) * r) * Math.cos(b.lat * r);
+  const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos((b.lon - a.lon) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+};
+
 // Convert a Valhalla answer into the same route shape the TomTom code path produces.
 export function valhallaToRoutes(json) {
   const MI = 1609.344;
@@ -123,7 +146,7 @@ export function valhallaToRoutes(json) {
     const leg = trip.legs[0], points = decodePolyline6(leg.shape);
     let off = 0;
     const instructions = leg.maneuvers.map((m) => {
-      const s = { message: m.instruction, routeOffsetInMeters: Math.round(off), point: points[m.begin_shape_index] };
+      const s = { message: tidyTurn(m.instruction), routeOffsetInMeters: Math.round(off), point: points[m.begin_shape_index] };
       off += m.length * MI;
       return s;
     });
