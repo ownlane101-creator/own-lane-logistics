@@ -173,6 +173,7 @@ $('routeForm').addEventListener('submit', async (ev) => {
     document.querySelectorAll('.route').forEach((b) => (b.onclick = () => showRoute(Number(b.dataset.i))));
     status(`Route for ${mToFtIn(truckHeightM())} tall, ${settings.weightLb.toLocaleString()} lb${settings.hazmat ? ', hazmat' : ''}. Avoids low bridges and roads closed to trucks.`);
     showRoute(0);
+    $('routes').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); // results sit below the map on phones
   } catch (e) { status(`Sorry, ${e.message}.`, true); }
 });
 
