@@ -88,8 +88,10 @@ export const fmtDist = (m) => m < 320 ? `${Math.max(50, Math.round(m / 0.3048 / 
 // ---- free, keyless truck routing (Valhalla on the OpenStreetMap community server) ----
 export const VALHALLA = 'https://valhalla1.openstreetmap.de/route';
 
-export const valhallaBody = (from, to, truck) => ({
-  locations: [{ lat: from.lat, lon: from.lon }, { lat: to.lat, lon: to.lon }],
+// wide: search farther for a truck-legal road when an address sits on a private lane or a small no-truck pocket.
+const snap = (p, wide) => wide ? { lat: p.lat, lon: p.lon, radius: 300, search_cutoff: 80000, minimum_reachability: 5 } : { lat: p.lat, lon: p.lon };
+export const valhallaBody = (from, to, truck, wide = false) => ({
+  locations: [snap(from, wide), snap(to, wide)],
   costing: 'truck',
   costing_options: { truck: {
     height: +truck.heightM.toFixed(2), weight: +(truck.weightKg / 1000).toFixed(1),

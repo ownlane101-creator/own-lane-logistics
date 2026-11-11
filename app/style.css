@@ -47,6 +47,7 @@ body.navigating header, body.navigating #panel { display: none; }
   background: #fff; padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -2px 8px #0003; font-weight: 700; }
 #navEta { flex: 1; }
 #endNav { background: var(--red); color: #fff; }
+.pin.end { background: #1a202c; color: #fff; font-weight: 700; }
 .pin.truck { background: var(--navy); width: 34px; height: 34px; font-size: 18px; }
 .suggest { list-style: none; margin: -6px 0 10px; padding: 0; border: 1px solid #c3ccd6; border-radius: 8px; overflow: hidden; background: #fff; }
 .suggest li + li { border-top: 1px solid #e6ebf0; }

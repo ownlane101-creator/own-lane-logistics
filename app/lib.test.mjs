@@ -71,6 +71,9 @@ test('valhallaToRoutes maps trip + alternates', () => {
 test('valhallaBody uses tonnes and truck costing', () => {
   const b = valhallaBody({ lat: 1, lon: 2 }, { lat: 3, lon: 4 }, { heightM: 4.1148, weightKg: 36287, lengthM: 21.95, hazmat: '' });
   assert.equal(b.costing, 'truck'); assert.equal(b.costing_options.truck.weight, 36.3); assert.equal(b.costing_options.truck.hazmat, false);
+  assert.deepEqual(b.locations[0], { lat: 1, lon: 2 });
+  const w = valhallaBody({ lat: 1, lon: 2 }, { lat: 3, lon: 4 }, { heightM: 4, weightKg: 1, lengthM: 1 }, true);
+  assert.ok(w.locations.every((l) => l.search_cutoff > 35000 && l.minimum_reachability < 50));
 });
 
 import { pickNearest, splitTrip, joinRoutes, photonLabel } from './lib.js';
