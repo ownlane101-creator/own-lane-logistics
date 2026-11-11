@@ -1,5 +1,5 @@
 import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restrictionsQuery,
-  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
+  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 // Public map-data servers are often busy, so try each in turn.
@@ -134,14 +134,23 @@ map.on('moveend', () => { clearTimeout(timer); timer = setTimeout(() => { loadPl
 function status(msg, err = false) { $('status').textContent = msg; $('status').className = err ? 'error' : ''; }
 
 // Free address search (Photon, from OpenStreetMap data), biased toward what's on the map.
-async function geocode(text) {
-  const c = map.getCenter();
-  const r = await fetch(`https://photon.komoot.io/api/?limit=1&lang=en&lat=${c.lat}&lon=${c.lng}&q=${encodeURIComponent(text)}`);
+const photon = async (text, near, signal) => {
+  const r = await fetch(`https://photon.komoot.io/api/?limit=10&lang=en&lat=${near.lat}&lon=${near.lon}&q=${encodeURIComponent(text)}`, { signal });
   if (!r.ok) throw new Error(`address search is busy (${r.status}), try again`);
-  const hit = (await r.json()).features?.[0];
+  return (await r.json()).features;
+};
+
+async function geocode(text, near) {
+  const hit = pickNearest(await photon(text, near), near);
   if (!hit) throw new Error(`couldn't find "${text}". Try adding the city and state`);
-  const [lon, lat] = hit.geometry.coordinates;
-  return { lat, lon };
+  return hit; // { lat, lon, label }
+}
+
+async function freeRoute(from, to) {
+  const r = await fetch(`${VALHALLA}?json=${encodeURIComponent(JSON.stringify(valhallaBody(from, to, truck())))}`);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `routing server is busy (${r.status}), try again`);
+  return valhallaToRoutes(data);
 }
 
 // TomTom (with live traffic) when a working key is saved; otherwise the free truck router.
@@ -152,14 +161,49 @@ async function findRoutes(from, to) {
     if (r.ok && data.routes?.length) return { routes: data.routes, traffic: true };
     if (r.status !== 401 && r.status !== 403) throw new Error(data.detailedError?.message || `routing failed (${r.status})`);
   }
-  const r = await fetch(`${VALHALLA}?json=${encodeURIComponent(JSON.stringify(valhallaBody(from, to, truck())))}`);
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || `routing server is busy (${r.status}), try again`);
-  return { routes: valhallaToRoutes(data), traffic: false, badKey: !!settings.key };
+  const stops = splitTrip(from, to);
+  let routes;
+  if (stops.length === 2) routes = await freeRoute(from, to);
+  else {
+    const pieces = [];
+    for (let i = 1; i < stops.length; i++) {
+      status(`Long haul: planning part ${i} of ${stops.length - 1}…`);
+      pieces.push((await freeRoute(stops[i - 1], stops[i]))[0]);
+    }
+    routes = [joinRoutes(pieces)];
+  }
+  return { routes, traffic: false, badKey: !!settings.key };
+}
+
+// Suggestions under the From / To boxes as the driver types; a tapped suggestion is used as-is.
+let lastFix = null; // last known GPS position, used to rank suggestions nearest first
+const nearPoint = () => lastFix || (({ lat, lng }) => ({ lat, lon: lng }))(map.getCenter());
+for (const id of ['from', 'to']) {
+  const input = $(id), list = $(`${id}List`);
+  let t, ctl;
+  input.addEventListener('input', () => {
+    input.picked = null;
+    clearTimeout(t);
+    const q = input.value.trim();
+    if (q.length < 3) { list.hidden = true; return; }
+    t = setTimeout(async () => {
+      ctl?.abort(); ctl = new AbortController();
+      try {
+        const near = nearPoint();
+        const places = rankPlaces(await photon(q, near, ctl.signal), near).slice(0, 6);
+        list.innerHTML = places.map((p, i) => `<li><button type="button" data-i="${i}">${esc(p.label)}<small>${fmtMiles(haversine(p, near))} away</small></button></li>`).join('');
+        list.hidden = !places.length;
+        list.querySelectorAll('button').forEach((b) => (b.onclick = () => {
+          input.picked = places[b.dataset.i]; input.value = input.picked.label; list.hidden = true;
+        }));
+      } catch {} // typing on; the next keystroke retries
+    }, 300);
+  });
+  input.addEventListener('blur', () => setTimeout(() => (list.hidden = true), 200));
 }
 
 const here = () => new Promise((ok, fail) => navigator.geolocation
-  ? navigator.geolocation.getCurrentPosition((p) => ok({ lat: p.coords.latitude, lon: p.coords.longitude }),
+  ? navigator.geolocation.getCurrentPosition((p) => ok(lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }),
       () => fail(new Error('location is off; type a starting point')), { timeout: 10000 })
   : fail(new Error('type a starting point')));
 
@@ -185,7 +229,8 @@ $('routeForm').addEventListener('submit', async (ev) => {
   $('routes').innerHTML = ''; $('steps').innerHTML = ''; $('startNav').hidden = true;
   try {
     const fromText = $('from').value.trim();
-    const [from, to] = await Promise.all([fromText ? geocode(fromText) : here(), geocode($('to').value.trim())]);
+    const from = $('from').picked || (fromText ? await geocode(fromText, nearPoint()) : await here());
+    const to = $('to').picked || await geocode($('to').value.trim(), from);
     const found = await findRoutes(from, to);
     routes = found.routes;
     if (!routes.length) throw new Error('no truck-legal route found');
@@ -197,7 +242,7 @@ $('routeForm').addEventListener('submit', async (ev) => {
       </button>`;
     }).join('');
     document.querySelectorAll('.route').forEach((b) => (b.onclick = () => showRoute(Number(b.dataset.i))));
-    status(`Route for ${mToFtIn(truckHeightM())} tall, ${settings.weightLb.toLocaleString()} lb${settings.hazmat ? ', hazmat' : ''}. Avoids low bridges and roads closed to trucks.${found.traffic ? '' : found.badKey ? ' Your TomTom key was rejected, so live traffic is off.' : ''}`);
+    status(`${to.label ? `To ${to.label}. ` : ''}Route for ${mToFtIn(truckHeightM())} tall, ${settings.weightLb.toLocaleString()} lb${settings.hazmat ? ', hazmat' : ''}. Avoids low bridges and roads closed to trucks.${found.traffic ? '' : found.badKey ? ' Your TomTom key was rejected, so live traffic is off.' : ''}`);
     showRoute(0);
     $('routes').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); // results sit below the map on phones
   } catch (e) { status(`Sorry, ${e.message}.`, true); }
@@ -247,3 +292,6 @@ function endDriving() {
 $('startNav').onclick = startDriving;
 $('endNav').onclick = endDriving;
 
+
+// Learn where the driver is (quietly) so address suggestions start nearby.
+navigator.geolocation?.getCurrentPosition((p) => { lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }; }, () => {}, { timeout: 10000 });

@@ -23,7 +23,9 @@
   <section id="panel">
     <form id="routeForm">
       <label>From <input id="from" placeholder="Current location" autocomplete="off"></label>
+      <ul id="fromList" class="suggest" hidden></ul>
       <label>To <input id="to" placeholder="City, address or ZIP" required autocomplete="off"></label>
+      <ul id="toList" class="suggest" hidden></ul>
       <button type="submit">Truck route</button>
     </form>
     <div id="status" role="status"></div>
