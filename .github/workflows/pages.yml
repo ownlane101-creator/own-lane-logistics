@@ -18,7 +18,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: node --test app/lib.test.mjs
+      - run: node --test app/lib.test.mjs app/grit/lib.test.mjs
       # Phones cache app files; a new name per release makes them load the latest code.
       - run: |
           V=${GITHUB_SHA::7}
