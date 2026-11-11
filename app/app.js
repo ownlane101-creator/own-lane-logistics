@@ -235,14 +235,28 @@ for (const id of ['from', 'to']) {
   input.addEventListener('blur', () => setTimeout(() => (list.hidden = true), 200));
 }
 
-// iPhone can leave a location request waiting forever (its timeout only starts after permission),
-// so we keep our own deadline and reuse a fix from the last minute.
+// One GPS watch from page load keeps lastFix fresh: on iPhone a watch delivers far more
+// reliably than one-off requests, and the route button then has a position instantly.
+const GEO_WHY = { 1: 'location permission is blocked for this site', 2: 'the phone has no GPS signal right now', 3: 'the GPS took too long' };
+let geoErr = null, fixAt = 0, meDot = null;
+navigator.geolocation?.watchPosition((p) => {
+  lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }; fixAt = Date.now(); geoErr = null;
+  if (!meDot) { // first fix: show the driver where they are
+    meDot = L.circleMarker([lastFix.lat, lastFix.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#2b6cb0', fillOpacity: 1 }).addTo(map);
+    if (!routeLayer.getLayers().length) map.setView([lastFix.lat, lastFix.lon], 12);
+  }
+  else meDot.setLatLng([lastFix.lat, lastFix.lon]);
+}, (e) => { geoErr = e; }, { enableHighAccuracy: true, maximumAge: 10000 });
+
 const here = () => new Promise((ok, fail) => {
-  const no = () => fail(new Error("couldn't get your location. Type your starting address in From"));
-  if (!navigator.geolocation) return no();
-  const t = setTimeout(no, 12000);
-  navigator.geolocation.getCurrentPosition((p) => { clearTimeout(t); ok(lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }); },
-    () => { clearTimeout(t); no(); }, { timeout: 10000, maximumAge: 60000 });
+  if (!navigator.geolocation) return fail(new Error('this browser has no location. Type a starting address'));
+  const started = Date.now();
+  const check = () => {
+    if (lastFix && Date.now() - fixAt < 120000) return ok(lastFix);
+    if (Date.now() - started > 15000) return fail(new Error(`couldn't get your location (${GEO_WHY[geoErr?.code] || 'no answer from the phone'}). Type a starting address for now`));
+    setTimeout(check, 250);
+  };
+  check();
 });
 
 let routes = [], selected = 0;
@@ -343,5 +357,3 @@ $('startNav').onclick = startDriving;
 $('endNav').onclick = endDriving;
 
 
-// Learn where the driver is (quietly) so address suggestions start nearby.
-navigator.geolocation?.getCurrentPosition((p) => { lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }; }, () => {}, { timeout: 10000 });
