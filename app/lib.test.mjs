@@ -128,3 +128,16 @@ test('rankPlaces drops overseas hits and keeps the typed state', () => {
   assert.deepEqual(r.map((x) => x.state), ['Pennsylvania']);
   assert.deepEqual(rank2([feat(4.4, 51.2, 'BE', { name: 'Espresso' })], near, 'espresso'), []);
 });
+
+import { tidyTurn, snapToLine, bearing } from './lib.js';
+test('tidyTurn shortens road names', () => {
+  assert.equal(tidyTurn('Drive north on I 83 North/Veterans of Foreign Wars of the United States Memorial Highway.'), 'Drive north on I-83 North.');
+  assert.equal(tidyTurn('Turn right onto Main Street.'), 'Turn right onto Main Street.');
+});
+test('snapToLine puts a wobbly fix back on the road', () => {
+  const line = [{ lat: 40, lon: -77 }, { lat: 40, lon: -76.99 }];
+  const s = snapToLine({ lat: 40.0002, lon: -76.995 }, line);
+  assert.ok(Math.abs(s.lat - 40) < 1e-9 && Math.abs(s.lon + 76.995) < 1e-9);
+  assert.ok(s.dist > 20 && s.dist < 25);
+  assert.ok(Math.abs(bearing(line[0], line[1]) - 90) < 0.1);
+});

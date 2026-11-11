@@ -48,10 +48,11 @@ body.navigating header, body.navigating #panel { display: none; }
 #navEta { flex: 1; }
 #endNav { background: var(--red); color: #fff; }
 .pin.end { background: #1a202c; color: #fff; font-weight: 700; }
-.pin.truck { background: var(--navy); width: 34px; height: 34px; font-size: 18px; }
+.pin.truck { background: #1a73e8; width: 38px; height: 38px; border-width: 3px; transition: transform .4s; }
 .suggest { list-style: none; margin: -6px 0 10px; padding: 0; border: 1px solid #c3ccd6; border-radius: 8px; overflow: hidden; background: #fff; }
 .suggest li + li { border-top: 1px solid #e6ebf0; }
 .suggest button { display: block; width: 100%; text-align: left; background: #fff; color: var(--fg); font-weight: 600; border-radius: 0; padding: 10px 12px; }
 .suggest button:active, .suggest button:focus-visible { background: #eef2f6; }
 .suggest small { display: block; color: var(--muted); font-weight: 400; }
 #ver { display: block; color: #8a99a8; font-size: 11px; margin-top: 6px; }
+body.navigating .me-dot { display: none; } /* the turn arrow shows the driver while navigating */
