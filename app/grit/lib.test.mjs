@@ -23,3 +23,17 @@ test('streaks and xp', () => {
   assert.equal(bestStreak(log), 4);
   assert.equal(totalXP(log), 70);
 });
+import { statXP, pickDaily, weekId, weekDays, doneIn } from './lib.js';
+test('stats, daily and weekly picks', () => {
+  const log = { '2026-11-10': { a: 10, f1: 15 }, '2026-11-11': { b: 20, zzz: 5 } };
+  const cat = { a: 'body', b: 'mind', f1: 'mind' };
+  assert.deepEqual(statXP(log, id => cat[id]), { body: 10, mind: 35, social: 0, grit: 5 });
+  const l = ['x', 'y', 'z'], d = new Date('2026-11-11T08:00');
+  assert.equal(pickDaily(l, d), pickDaily(l, new Date('2026-11-11T23:00')));
+  assert.notEqual(pickDaily(l, d), pickDaily(l, new Date('2026-11-12T08:00')));
+  const wk = weekDays(d);
+  assert.equal(wk[0].getDay(), 1); assert.equal(wk[6].getDay(), 0);
+  assert.ok(wk.every(x => weekId(x) === weekId(d)));
+  assert.notEqual(weekId(new Date('2026-11-16T08:00')), weekId(d));
+  assert.ok(doneIn(log, 'a', wk)); assert.ok(!doneIn(log, 'q', wk));
+});
