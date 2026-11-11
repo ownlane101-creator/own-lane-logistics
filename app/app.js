@@ -1,5 +1,5 @@
 import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restrictionsQuery,
-  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
+  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 // Public map-data servers are often busy, so try each in turn.
@@ -140,10 +140,31 @@ const photon = async (text, near, signal) => {
   return (await r.json()).features;
 };
 
+// Try the fast search, then OpenStreetMap's main search, then the street without its house number.
+async function lookupPlaces(text, near, signal, full = true) {
+  let places = [];
+  if (settings.key) { // TomTom's commercial address data when the driver added a key
+    try {
+      const r = await fetch(`https://api.tomtom.com/search/2/geocode/${encodeURIComponent(text)}.json?limit=6&countrySet=US,CA&typeahead=${!full}&lat=${near.lat}&lon=${near.lon}&key=${encodeURIComponent(settings.key)}`, { signal });
+      if (r.ok) places = ((await r.json()).results || []).map((x) => ({ lat: x.position.lat, lon: x.position.lon, label: x.address.freeformAddress }));
+    } catch (e) { if (signal?.aborted) throw e; }
+  }
+  if (!places.length) places = rankPlaces(await photon(text, near, signal), near);
+  if (!places.length && full) { // Nominatim's rules forbid search-as-you-type, so only on the final lookup
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=us,ca&q=${encodeURIComponent(text)}`, { signal });
+      if (r.ok) places = nominatimPlaces(await r.json()).sort((a, b) => haversine(a, near) - haversine(b, near));
+    } catch (e) { if (signal?.aborted) throw e; }
+  }
+  const street = withoutHouseNumber(text);
+  if (!places.length && street !== text) places = rankPlaces(await photon(street, near, signal), near);
+  return places;
+}
+
 async function geocode(text, near) {
-  const hit = pickNearest(await photon(text, near), near);
-  if (!hit) throw new Error(`couldn't find "${text}". Try adding the city and state`);
-  return hit; // { lat, lon, label }
+  const hit = (await lookupPlaces(text, near))[0];
+  if (!hit) throw new Error(`couldn't find "${text}". Check the spelling, or pick from the list as you type`);
+  return hit;
 }
 
 async function freeRoute(from, to) {
@@ -190,7 +211,7 @@ for (const id of ['from', 'to']) {
       ctl?.abort(); ctl = new AbortController();
       try {
         const near = nearPoint();
-        const places = rankPlaces(await photon(q, near, ctl.signal), near).slice(0, 6);
+        const places = (await lookupPlaces(q, near, ctl.signal, false)).slice(0, 6);
         list.innerHTML = places.map((p, i) => `<li><button type="button" data-i="${i}">${esc(p.label)}<small>${fmtMiles(haversine(p, near))} away</small></button></li>`).join('');
         list.hidden = !places.length;
         list.querySelectorAll('button').forEach((b) => (b.onclick = () => {

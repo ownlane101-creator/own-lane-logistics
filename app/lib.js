@@ -172,3 +172,12 @@ export function joinRoutes(pieces) {
     legs: [{ points }], guidance: { instructions },
   };
 }
+
+// "3300 Espresso Way, York, PA" -> "Espresso Way, York, PA": free map data often lacks exact house numbers.
+export const withoutHouseNumber = (q) => q.replace(/^\s*\d+[a-z]?(-\d+)?\s+/i, '');
+
+// Nominatim results -> same shape as rankPlaces items.
+export const nominatimPlaces = (rows) => (rows || []).map((r) => ({
+  lat: +r.lat, lon: +r.lon, cc: (r.address?.country_code || '').toUpperCase(),
+  label: r.display_name.split(', ').slice(0, 4).join(', '),
+}));

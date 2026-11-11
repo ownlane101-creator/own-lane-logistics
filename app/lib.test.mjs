@@ -97,3 +97,14 @@ test('joinRoutes adds up distance, time and step offsets', () => {
   assert.deepEqual(r.guidance.instructions.map((s) => s.routeOffsetInMeters), [0, 1000, 2000]);
   assert.equal(r.legs[0].points.length, 4);
 });
+
+import { withoutHouseNumber, nominatimPlaces } from './lib.js';
+test('withoutHouseNumber', () => {
+  assert.equal(withoutHouseNumber('3300 espresso Way, York, Pennsylvania'), 'espresso Way, York, Pennsylvania');
+  assert.equal(withoutHouseNumber('12B-14 Main St'), 'Main St');
+  assert.equal(withoutHouseNumber('I-70 Exit 415'), 'I-70 Exit 415');
+});
+test('nominatimPlaces', () => {
+  const [p] = nominatimPlaces([{ lat: '39.9', lon: '-76.7', display_name: '3300, Espresso Way, York, York County, Pennsylvania, 17406, United States', address: { country_code: 'us' } }]);
+  assert.deepEqual(p, { lat: 39.9, lon: -76.7, cc: 'US', label: '3300, Espresso Way, York, York County' });
+});
