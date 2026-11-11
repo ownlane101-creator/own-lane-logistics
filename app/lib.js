@@ -67,3 +67,20 @@ export const fmtTime = (s) => {
   const h = Math.floor(s / 3600), min = Math.round((s % 3600) / 60);
   return h ? `${h} h ${min} min` : `${min} min`;
 };
+
+// Meters between two {lat, lon} points.
+export function haversine(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Index of the step to show next: skip steps the truck is within `reachedM` of, or already past.
+export function nextStepIndex(steps, pos, from = 0, reachedM = 40) {
+  let i = from;
+  while (i < steps.length - 1 && haversine(pos, steps[i].at) < reachedM) i++;
+  return i;
+}
+
+export const fmtDist = (m) => m < 320 ? `${Math.max(50, Math.round(m / 0.3048 / 50) * 50)} ft` : fmtMiles(m);

@@ -37,3 +37,14 @@ menu { padding: 0; margin: 0; text-align: right; }
   #map { min-height: 50vh; }
   #panel { width: 100%; border-left: 0; border-top: 1px solid #dde3ea; }
 }
+#startNav { width: 100%; margin: 4px 0 12px; background: #2f855a; color: #fff; }
+body.navigating header, body.navigating #panel { display: none; }
+#navTurn { position: fixed; z-index: 1000; top: 0; left: 0; right: 0; background: var(--navy); color: #fff;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 14px; }
+#navDist { font-size: 30px; font-weight: 800; color: var(--amber); }
+#navMsg { font-size: 20px; font-weight: 600; }
+#navBar { position: fixed; z-index: 1000; bottom: 0; left: 0; right: 0; display: flex; align-items: center; gap: 12px;
+  background: #fff; padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -2px 8px #0003; font-weight: 700; }
+#navEta { flex: 1; }
+#endNav { background: var(--red); color: #fff; }
+.pin.truck { background: var(--navy); width: 34px; height: 34px; font-size: 18px; }

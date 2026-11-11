@@ -1,5 +1,5 @@
 import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restrictionsQuery,
-  tomtomRouteUrl, fmtMiles, fmtTime } from './lib.js';
+  tomtomRouteUrl, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
@@ -136,8 +136,10 @@ const here = () => new Promise((ok, fail) => navigator.geolocation
       () => fail(new Error('location is off; type a starting point')), { timeout: 10000 })
   : fail(new Error('type a starting point')));
 
-let routes = [];
+let routes = [], selected = 0;
 function showRoute(i) {
+  selected = i;
+  $('startNav').hidden = false;
   routeLayer.clearLayers();
   routes.forEach((r, j) => {
     const pts = r.legs.flatMap((l) => l.points.map((p) => [p.latitude, p.longitude]));
@@ -154,7 +156,7 @@ $('routeForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   if (!settings.key) { status('Add your TomTom API key in Truck settings first.', true); openSettings(); return; }
   status('Finding a truck-safe route…');
-  $('routes').innerHTML = ''; $('steps').innerHTML = '';
+  $('routes').innerHTML = ''; $('steps').innerHTML = ''; $('startNav').hidden = true;
   try {
     const fromText = $('from').value.trim();
     const [from, to] = await Promise.all([fromText ? geocode(fromText) : here(), geocode($('to').value.trim())]);
@@ -176,5 +178,49 @@ $('routeForm').addEventListener('submit', async (ev) => {
     $('routes').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); // results sit below the map on phones
   } catch (e) { status(`Sorry, ${e.message}.`, true); }
 });
+
+// ---- driving mode: follow the truck and call out each turn ----
+const routeLine = (r) => r.legs.flatMap((l) => l.points.map((p) => ({ lat: p.latitude, lon: p.longitude })));
+const say = (text) => { try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch {} };
+let stopWatch = null;
+
+function geoWatch(onPos) {
+  if (!navigator.geolocation) { status('This device has no GPS location.', true); return () => {}; }
+  const id = navigator.geolocation.watchPosition((p) => onPos({ lat: p.coords.latitude, lon: p.coords.longitude }),
+    () => status('Turn on location to use driving mode.', true), { enableHighAccuracy: true, maximumAge: 2000 });
+  return () => navigator.geolocation.clearWatch(id);
+}
+
+function startDriving() {
+  const r = routes[selected], total = r.summary.lengthInMeters;
+  // shortcut: no automatic re-route when the driver leaves the route; add one when live GPS testing shows it's needed.
+  const steps = (r.guidance?.instructions || []).filter((s) => s.point)
+    .map((s) => ({ msg: s.message, off: s.routeOffsetInMeters, at: { lat: s.point.latitude, lon: s.point.longitude } }));
+  if (!steps.length) { status('This route has no turn list.', true); return; }
+  document.body.classList.add('navigating'); $('nav').hidden = false; map.invalidateSize();
+  const truckPin = L.marker([steps[0].at.lat, steps[0].at.lon], { icon: pin('truck', '🚚'), zIndexOffset: 1000 }).addTo(routeLayer);
+  let idx = 0, spoken = -1, warned = -1;
+  const onPos = (pos) => {
+    truckPin.setLatLng([pos.lat, pos.lon]);
+    map.setView([pos.lat, pos.lon], globalThis.DEMO_ZOOM || 16, { animate: false });
+    idx = nextStepIndex(steps, pos, idx);
+    const d = haversine(pos, steps[idx].at), left = Math.max(0, total - steps[idx].off) + d;
+    $('navDist').textContent = fmtDist(d);
+    $('navMsg').textContent = steps[idx].msg;
+    $('navEta').textContent = `${fmtMiles(left)} · ${fmtTime(r.summary.travelTimeInSeconds * left / total)} left`;
+    if (spoken !== idx) { spoken = idx; say(`In ${fmtDist(d).replace('mi', 'miles').replace('ft', 'feet')}, ${steps[idx].msg}`); }
+    else if (d < 300 && warned !== idx) { warned = idx; say(steps[idx].msg); }
+  };
+  stopWatch = (globalThis.simulateDrive || geoWatch)(onPos, routeLine(r));
+}
+
+function endDriving() {
+  stopWatch?.(); stopWatch = null;
+  try { speechSynthesis.cancel(); } catch {}
+  document.body.classList.remove('navigating'); $('nav').hidden = true; map.invalidateSize();
+  showRoute(selected);
+}
+$('startNav').onclick = startDriving;
+$('endNav').onclick = endDriving;
 
 if (!settings.key) openSettings();

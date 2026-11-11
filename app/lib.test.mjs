@@ -35,3 +35,17 @@ test('tomtomRouteUrl sets truck params', () => {
 });
 
 test('fmtTime', () => { assert.equal(fmtTime(3900), '1 h 5 min'); assert.equal(fmtTime(600), '10 min'); });
+
+import { haversine, nextStepIndex } from './lib.js';
+test('haversine: Memphis to Nashville is about 315 km straight-line', () => {
+  const d = haversine({ lat: 35.1495, lon: -90.049 }, { lat: 36.1627, lon: -86.7816 });
+  assert.ok(d > 310000 && d < 320000, d);
+});
+test('nextStepIndex advances past reached steps only', () => {
+  const steps = [{ at: { lat: 0, lon: 0 } }, { at: { lat: 0, lon: 0.0001 } }, { at: { lat: 0, lon: 1 } }];
+  assert.equal(nextStepIndex(steps, { lat: 0, lon: 0 }), 2);
+  assert.equal(nextStepIndex(steps, { lat: 0, lon: 0.5 }), 0);
+  assert.equal(nextStepIndex(steps, { lat: 0, lon: 1 }, 2), 2);
+});
+import { fmtDist } from './lib.js';
+test('fmtDist', () => { assert.equal(fmtDist(100), '350 ft'); assert.equal(fmtDist(1609.344), '1.0 mi'); });

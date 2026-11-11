@@ -28,9 +28,15 @@
     </form>
     <div id="status" role="status"></div>
     <div id="routes"></div>
+    <button id="startNav" type="button" hidden>▶ Start driving</button>
     <ol id="steps"></ol>
   </section>
 </main>
+
+<div id="nav" hidden>
+  <div id="navTurn" role="status" aria-live="polite"><div id="navDist"></div><div id="navMsg"></div></div>
+  <div id="navBar"><span id="navEta"></span><button id="endNav" type="button">End</button></div>
+</div>
 
 <dialog id="settings">
   <form method="dialog" id="settingsForm">

@@ -13,4 +13,4 @@ Routing and traffic use TomTom. Get a free API key at developer.tomtom.com and e
 Run it locally: `python3 -m http.server -d app 8000`, then open http://localhost:8000.
 Tests: `node --test app/lib.test.mjs`.
 
-The app isn't turn-by-turn voice navigation yet. Always obey posted signs: map data can be missing or out of date.
+**Driving mode**: tap "Start driving" after picking a route. The map follows your GPS location, shows the next turn and distance in large text, and reads each turn aloud. It does not re-route automatically yet if you leave the route. Always obey posted signs: map data can be missing or out of date.
