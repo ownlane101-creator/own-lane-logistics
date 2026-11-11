@@ -235,10 +235,15 @@ for (const id of ['from', 'to']) {
   input.addEventListener('blur', () => setTimeout(() => (list.hidden = true), 200));
 }
 
-const here = () => new Promise((ok, fail) => navigator.geolocation
-  ? navigator.geolocation.getCurrentPosition((p) => ok(lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }),
-      () => fail(new Error('location is off; type a starting point')), { timeout: 10000 })
-  : fail(new Error('type a starting point')));
+// iPhone can leave a location request waiting forever (its timeout only starts after permission),
+// so we keep our own deadline and reuse a fix from the last minute.
+const here = () => new Promise((ok, fail) => {
+  const no = () => fail(new Error("couldn't get your location. Type your starting address in From"));
+  if (!navigator.geolocation) return no();
+  const t = setTimeout(no, 12000);
+  navigator.geolocation.getCurrentPosition((p) => { clearTimeout(t); ok(lastFix = { lat: p.coords.latitude, lon: p.coords.longitude }); },
+    () => { clearTimeout(t); no(); }, { timeout: 10000, maximumAge: 60000 });
+});
 
 let routes = [], selected = 0;
 function showRoute(i) {
