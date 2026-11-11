@@ -84,3 +84,51 @@ export function nextStepIndex(steps, pos, from = 0, reachedM = 40) {
 }
 
 export const fmtDist = (m) => m < 320 ? `${Math.max(50, Math.round(m / 0.3048 / 50) * 50)} ft` : fmtMiles(m);
+
+// ---- free, keyless truck routing (Valhalla on the OpenStreetMap community server) ----
+export const VALHALLA = 'https://valhalla1.openstreetmap.de/route';
+
+export const valhallaBody = (from, to, truck) => ({
+  locations: [{ lat: from.lat, lon: from.lon }, { lat: to.lat, lon: to.lon }],
+  costing: 'truck',
+  costing_options: { truck: {
+    height: +truck.heightM.toFixed(2), weight: +(truck.weightKg / 1000).toFixed(1),
+    length: +(truck.lengthM || 0).toFixed(1), hazmat: !!truck.hazmat,
+  } },
+  alternates: 2,
+  units: 'miles',
+});
+
+// Valhalla encodes route shapes as polyline with 6 digits of precision.
+export function decodePolyline6(str) {
+  const out = []; let i = 0, lat = 0, lon = 0;
+  while (i < str.length) {
+    for (const k of [0, 1]) {
+      let shift = 0, result = 0, b;
+      do { b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const d = result & 1 ? ~(result >> 1) : result >> 1;
+      if (k === 0) lat += d; else lon += d;
+    }
+    out.push({ latitude: lat / 1e6, longitude: lon / 1e6 });
+  }
+  return out;
+}
+
+// Convert a Valhalla answer into the same route shape the TomTom code path produces.
+export function valhallaToRoutes(json) {
+  const MI = 1609.344;
+  return [json, ...(json.alternates || [])].map(({ trip }) => {
+    const leg = trip.legs[0], points = decodePolyline6(leg.shape);
+    let off = 0;
+    const instructions = leg.maneuvers.map((m) => {
+      const s = { message: m.instruction, routeOffsetInMeters: Math.round(off), point: points[m.begin_shape_index] };
+      off += m.length * MI;
+      return s;
+    });
+    return {
+      summary: { lengthInMeters: trip.summary.length * MI, travelTimeInSeconds: trip.summary.time },
+      legs: [{ points }],
+      guidance: { instructions },
+    };
+  });
+}

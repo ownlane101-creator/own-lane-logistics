@@ -1,5 +1,5 @@
 import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restrictionsQuery,
-  tomtomRouteUrl, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
+  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 // Public map-data servers are often busy, so try each in turn.
@@ -133,14 +133,29 @@ map.on('moveend', () => { clearTimeout(timer); timer = setTimeout(() => { loadPl
 // ---- routing ----
 function status(msg, err = false) { $('status').textContent = msg; $('status').className = err ? 'error' : ''; }
 
+// Free address search (Photon, from OpenStreetMap data), biased toward what's on the map.
 async function geocode(text) {
   const c = map.getCenter();
-  const u = `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(text)}.json?limit=1&countrySet=US,CA&lat=${c.lat}&lon=${c.lng}&key=${encodeURIComponent(settings.key)}`;
-  const r = await fetch(u);
-  if (!r.ok) throw new Error(`address lookup failed (${r.status})`);
-  const hit = (await r.json()).results?.[0];
-  if (!hit) throw new Error(`couldn't find "${text}"`);
-  return hit.position; // { lat, lon }
+  const r = await fetch(`https://photon.komoot.io/api/?limit=1&lang=en&lat=${c.lat}&lon=${c.lng}&q=${encodeURIComponent(text)}`);
+  if (!r.ok) throw new Error(`address search is busy (${r.status}), try again`);
+  const hit = (await r.json()).features?.[0];
+  if (!hit) throw new Error(`couldn't find "${text}". Try adding the city and state`);
+  const [lon, lat] = hit.geometry.coordinates;
+  return { lat, lon };
+}
+
+// TomTom (with live traffic) when a working key is saved; otherwise the free truck router.
+async function findRoutes(from, to) {
+  if (settings.key) {
+    const r = await fetch(tomtomRouteUrl(settings.key, from, to, truck()));
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.routes?.length) return { routes: data.routes, traffic: true };
+    if (r.status !== 401 && r.status !== 403) throw new Error(data.detailedError?.message || `routing failed (${r.status})`);
+  }
+  const r = await fetch(`${VALHALLA}?json=${encodeURIComponent(JSON.stringify(valhallaBody(from, to, truck())))}`);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `routing server is busy (${r.status}), try again`);
+  return { routes: valhallaToRoutes(data), traffic: false, badKey: !!settings.key };
 }
 
 const here = () => new Promise((ok, fail) => navigator.geolocation
@@ -166,26 +181,23 @@ function showRoute(i) {
 
 $('routeForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
-  if (!settings.key) { status('Add your TomTom API key in Truck settings first.', true); openSettings(); return; }
   status('Finding a truck-safe route…');
   $('routes').innerHTML = ''; $('steps').innerHTML = ''; $('startNav').hidden = true;
   try {
     const fromText = $('from').value.trim();
     const [from, to] = await Promise.all([fromText ? geocode(fromText) : here(), geocode($('to').value.trim())]);
-    const r = await fetch(tomtomRouteUrl(settings.key, from, to, truck()));
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detailedError?.message || data.error?.description || `routing failed (${r.status})`);
-    routes = data.routes || [];
+    const found = await findRoutes(from, to);
+    routes = found.routes;
     if (!routes.length) throw new Error('no truck-legal route found');
     $('routes').innerHTML = routes.map((rt, i) => {
       const s = rt.summary, delay = s.trafficDelayInSeconds;
       return `<button class="route" type="button" data-i="${i}">
-        <b>${i ? `Alternate ${i}` : 'Fastest now'} · ${fmtTime(s.travelTimeInSeconds)}</b>
-        ${fmtMiles(s.lengthInMeters)}${delay > 60 ? ` · <span class="delay">+${fmtTime(delay)} traffic</span>` : ' · light traffic'}
+        <b>${i ? `Alternate ${i}` : 'Best route'} · ${fmtTime(s.travelTimeInSeconds)}</b>
+        ${fmtMiles(s.lengthInMeters)}${delay == null ? '' : delay > 60 ? ` · <span class="delay">+${fmtTime(delay)} traffic</span>` : ' · light traffic'}
       </button>`;
     }).join('');
     document.querySelectorAll('.route').forEach((b) => (b.onclick = () => showRoute(Number(b.dataset.i))));
-    status(`Route for ${mToFtIn(truckHeightM())} tall, ${settings.weightLb.toLocaleString()} lb${settings.hazmat ? ', hazmat' : ''}. Avoids low bridges and roads closed to trucks.`);
+    status(`Route for ${mToFtIn(truckHeightM())} tall, ${settings.weightLb.toLocaleString()} lb${settings.hazmat ? ', hazmat' : ''}. Avoids low bridges and roads closed to trucks.${found.traffic ? '' : found.badKey ? ' Your TomTom key was rejected, so live traffic is off.' : ''}`);
     showRoute(0);
     $('routes').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); // results sit below the map on phones
   } catch (e) { status(`Sorry, ${e.message}.`, true); }
@@ -235,4 +247,3 @@ function endDriving() {
 $('startNav').onclick = startDriving;
 $('endNav').onclick = endDriving;
 
-if (!settings.key) openSettings();
