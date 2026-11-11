@@ -66,6 +66,13 @@ const pin = (cls, html) => L.divIcon({ className: '', html: `<div class="pin ${c
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 const bounds = () => { const b = map.getBounds(); return { s: b.getSouth(), w: b.getWest(), n: b.getNorth(), e: b.getEast() }; };
 
+// Give up on a slow server instead of spinning forever; the caller's signal still cancels early.
+function fetchT(url, opts = {}, ms = 8000) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+  opts.signal?.addEventListener('abort', () => ctl.abort());
+  return fetch(url, { ...opts, signal: ctl.signal }).finally(() => clearTimeout(t));
+}
+
 const inflight = {};
 async function overpass(name, query) {
   inflight[name]?.abort();
@@ -73,7 +80,7 @@ async function overpass(name, query) {
   let last;
   for (const url of OVERPASS) {
     try {
-      const r = await fetch(url, { method: 'POST', body: new URLSearchParams({ data: query }), signal: ctl.signal });
+      const r = await fetchT(url, { method: 'POST', body: new URLSearchParams({ data: query }), signal: ctl.signal }, 25000);
       if (r.ok) return (await r.json()).elements;
       last = new Error(`server busy (${r.status})`);
     } catch (e) {
@@ -136,7 +143,7 @@ function status(msg, err = false) { $('status').textContent = msg; $('status').c
 
 // Free address search (Photon, from OpenStreetMap data), biased toward what's on the map.
 const photon = async (text, near, signal) => {
-  const r = await fetch(`https://photon.komoot.io/api/?limit=10&lang=en&lat=${near.lat}&lon=${near.lon}&q=${encodeURIComponent(text)}`, { signal });
+  const r = await fetchT(`https://photon.komoot.io/api/?limit=10&lang=en&lat=${near.lat}&lon=${near.lon}&q=${encodeURIComponent(text)}`, { signal });
   if (!r.ok) throw new Error(`address search is busy (${r.status}), try again`);
   return (await r.json()).features;
 };
@@ -146,19 +153,20 @@ async function lookupPlaces(text, near, signal, full = true) {
   let places = [];
   if (settings.key) { // TomTom's commercial address data when the driver added a key
     try {
-      const r = await fetch(`https://api.tomtom.com/search/2/geocode/${encodeURIComponent(text)}.json?limit=6&countrySet=US,CA&typeahead=${!full}&lat=${near.lat}&lon=${near.lon}&key=${encodeURIComponent(settings.key)}`, { signal });
+      const r = await fetchT(`https://api.tomtom.com/search/2/geocode/${encodeURIComponent(text)}.json?limit=6&countrySet=US,CA&typeahead=${!full}&lat=${near.lat}&lon=${near.lon}&key=${encodeURIComponent(settings.key)}`, { signal });
       if (r.ok) places = ((await r.json()).results || []).map((x) => ({ lat: x.position.lat, lon: x.position.lon, label: x.address.freeformAddress }));
     } catch (e) { if (signal?.aborted) throw e; }
   }
-  if (!places.length) places = rankPlaces(await photon(text, near, signal), near);
+  const photonSafe = async (q) => { try { return rankPlaces(await photon(q, near, signal), near); } catch (e) { if (signal?.aborted) throw e; return []; } };
+  if (!places.length) places = await photonSafe(text);
   if (!places.length && full) { // Nominatim's rules forbid search-as-you-type, so only on the final lookup
     try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=us,ca&q=${encodeURIComponent(text)}`, { signal });
+      const r = await fetchT(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=us,ca&q=${encodeURIComponent(text)}`, { signal });
       if (r.ok) places = nominatimPlaces(await r.json()).sort((a, b) => haversine(a, near) - haversine(b, near));
     } catch (e) { if (signal?.aborted) throw e; }
   }
   const street = withoutHouseNumber(text);
-  if (!places.length && street !== text) places = rankPlaces(await photon(street, near, signal), near);
+  if (!places.length && street !== text) places = await photonSafe(street);
   return places;
 }
 
@@ -169,7 +177,7 @@ async function geocode(text, near) {
 }
 
 async function freeRoute(from, to, wide = false) {
-  const r = await fetch(`${VALHALLA}?json=${encodeURIComponent(JSON.stringify(valhallaBody(from, to, truck(), wide)))}`);
+  const r = await fetchT(`${VALHALLA}?json=${encodeURIComponent(JSON.stringify(valhallaBody(from, to, truck(), wide)))}`, {}, 30000);
   const data = await r.json().catch(() => ({}));
   // 170-172: an address couldn't be matched to a truck road; search wider once before giving up.
   if (data.error_code >= 170 && data.error_code <= 172 && !wide) return freeRoute(from, to, true);
@@ -181,7 +189,7 @@ async function freeRoute(from, to, wide = false) {
 // TomTom (with live traffic) when a working key is saved; otherwise the free truck router.
 async function findRoutes(from, to) {
   if (settings.key) {
-    const r = await fetch(tomtomRouteUrl(settings.key, from, to, truck()));
+    const r = await fetchT(tomtomRouteUrl(settings.key, from, to, truck()), {}, 30000);
     const data = await r.json().catch(() => ({}));
     if (r.ok && data.routes?.length) return { routes: data.routes, traffic: true };
     if (r.status !== 401 && r.status !== 403) throw new Error(data.detailedError?.message || `routing failed (${r.status})`);
@@ -254,8 +262,11 @@ $('routeForm').addEventListener('submit', async (ev) => {
   $('routes').innerHTML = ''; $('steps').innerHTML = ''; $('startNav').hidden = true;
   try {
     const fromText = $('from').value.trim();
+    status(fromText ? 'Looking up the From address…' : 'Finding your location…');
     const from = $('from').picked || (fromText ? await geocode(fromText, nearPoint()) : await here());
+    status('Looking up the To address…');
     const to = $('to').picked || await geocode($('to').value.trim(), from);
+    status('Planning a truck-safe route…');
     endsLayer.clearLayers(); routeLayer.clearLayers();
     for (const [p, t] of [[from, 'A'], [to, 'B']]) L.marker([p.lat, p.lon], { icon: pin('end', t), title: p.label || '' }).addTo(endsLayer);
     map.fitBounds([[from.lat, from.lon], [to.lat, to.lon]], { padding: [40, 40] });
@@ -273,7 +284,7 @@ $('routeForm').addEventListener('submit', async (ev) => {
     status(`${to.label ? `To ${to.label}. ` : ''}Route for ${mToFtIn(truckHeightM())} tall, ${settings.weightLb.toLocaleString()} lb${settings.hazmat ? ', hazmat' : ''}. Avoids low bridges and roads closed to trucks.${found.traffic ? '' : found.badKey ? ' Your TomTom key was rejected, so live traffic is off.' : ''}`);
     showRoute(0);
     $('routes').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); // results sit below the map on phones
-  } catch (e) { status(`Sorry, ${e.message}.`, true); }
+  } catch (e) { status(`Sorry, ${e.name === 'AbortError' ? 'the map server took too long to answer. Tap Truck route to try again' : e.message}.`, true); }
 });
 
 // ---- driving mode: follow the truck and call out each turn ----
