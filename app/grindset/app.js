@@ -217,7 +217,7 @@ $('soundBtn').onclick = () => { state.sound = !state.sound; save(); render(); };
 $('exportBtn').onclick = () => {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(state)], { type: 'application/json' }));
-  a.download = `grit-backup-${dayKey(new Date())}.json`; a.click();
+  a.download = `grindset-backup-${dayKey(new Date())}.json`; a.click();
 };
 $('importBtn').onclick = () => $('importFile').click();
 $('importFile').onchange = async e => {
@@ -226,7 +226,7 @@ $('importFile').onchange = async e => {
     if (!Array.isArray(data.habits) || typeof data.log !== 'object') throw 0;
     if (!confirm('Replace everything on this phone with this backup?')) return;
     localStorage.setItem(KEY, JSON.stringify(data)); location.reload();
-  } catch { alert("That file isn't a Grit backup."); }
+  } catch { alert("That file isn't a Grindset backup."); }
 };
 
 function render() {

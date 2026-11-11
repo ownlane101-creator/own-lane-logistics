@@ -1,4 +1,4 @@
-// Pure game logic for Grit. Log shape: { 'YYYY-MM-DD': { habitId: xpEarned } }
+// Pure game logic for Grindset. Log shape: { 'YYYY-MM-DD': { habitId: xpEarned } }
 export const TIERS = ['Iron', 'Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Legend'];
 const DIVS = ['IV', 'III', 'II', 'I'];
 
