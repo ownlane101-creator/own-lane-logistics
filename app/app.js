@@ -2,7 +2,9 @@ import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restricti
   tomtomRouteUrl, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+// Public map-data servers are often busy, so try each in turn.
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 const ICONS = { fuel: '⛽', parking: 'P', rest: '🛏', weigh: '⚖' };
 const NAMES = { fuel: 'Truck stop / fuel', parking: 'Truck parking', rest: 'Rest area', weigh: 'Weigh station' };
 
@@ -67,9 +69,18 @@ const inflight = {};
 async function overpass(name, query) {
   inflight[name]?.abort();
   const ctl = (inflight[name] = new AbortController());
-  const r = await fetch(OVERPASS, { method: 'POST', body: new URLSearchParams({ data: query }), signal: ctl.signal });
-  if (!r.ok) throw new Error(`map data ${r.status}`);
-  return (await r.json()).elements;
+  let last;
+  for (const url of OVERPASS) {
+    try {
+      const r = await fetch(url, { method: 'POST', body: new URLSearchParams({ data: query }), signal: ctl.signal });
+      if (r.ok) return (await r.json()).elements;
+      last = new Error(`server busy (${r.status})`);
+    } catch (e) {
+      if (ctl.signal.aborted) throw e; // map moved again; a newer request replaces this one
+      last = e;
+    }
+  }
+  throw last;
 }
 
 async function loadPlaces() {
@@ -88,7 +99,7 @@ async function loadPlaces() {
         .bindPopup(`<b>${esc(t.name || t.brand || NAMES[type])}</b><br>${NAMES[type]}${extras.length ? '<br>' + extras.join(' · ') : ''}`)
         .addTo(places);
     }
-  } catch (e) { if (e.name !== 'AbortError') status(`Couldn't load truck stops: ${e.message}`, true); }
+  } catch (e) { if (!inflight.places.signal.aborted) status(`Couldn't load truck stops right now (${e.message}). Move the map to try again.`, true); }
 }
 
 async function loadRestrictions() {
@@ -113,7 +124,7 @@ async function loadRestrictions() {
           .bindPopup(`<b>No trucks</b>${t.name ? '<br>' + esc(t.name) : ''}`).addTo(restrictions);
       }
     }
-  } catch (e) { if (e.name !== 'AbortError') status(`Couldn't load road restrictions: ${e.message}`, true); }
+  } catch (e) { if (!inflight.restrictions.signal.aborted) status(`Couldn't load low bridges right now (${e.message}). Move the map to try again.`, true); }
 }
 
 let timer;
@@ -123,7 +134,8 @@ map.on('moveend', () => { clearTimeout(timer); timer = setTimeout(() => { loadPl
 function status(msg, err = false) { $('status').textContent = msg; $('status').className = err ? 'error' : ''; }
 
 async function geocode(text) {
-  const u = `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(text)}.json?limit=1&key=${encodeURIComponent(settings.key)}`;
+  const c = map.getCenter();
+  const u = `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(text)}.json?limit=1&countrySet=US,CA&lat=${c.lat}&lon=${c.lng}&key=${encodeURIComponent(settings.key)}`;
   const r = await fetch(u);
   if (!r.ok) throw new Error(`address lookup failed (${r.status})`);
   const hit = (await r.json()).results?.[0];
