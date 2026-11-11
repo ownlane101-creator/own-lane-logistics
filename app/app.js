@@ -45,6 +45,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const places = L.layerGroup().addTo(map);
 const restrictions = L.layerGroup().addTo(map);
 const routeLayer = L.layerGroup().addTo(map);
+const endsLayer = L.layerGroup().addTo(map); // From / To pins, so the driver sees where each address landed
 const traffic = L.layerGroup().addTo(map);
 L.control.layers(null, {
   'Truck stops, parking, weigh stations': places,
@@ -167,9 +168,12 @@ async function geocode(text, near) {
   return hit;
 }
 
-async function freeRoute(from, to) {
-  const r = await fetch(`${VALHALLA}?json=${encodeURIComponent(JSON.stringify(valhallaBody(from, to, truck())))}`);
+async function freeRoute(from, to, wide = false) {
+  const r = await fetch(`${VALHALLA}?json=${encodeURIComponent(JSON.stringify(valhallaBody(from, to, truck(), wide)))}`);
   const data = await r.json().catch(() => ({}));
+  // 170-172: an address couldn't be matched to a truck road; search wider once before giving up.
+  if (data.error_code >= 170 && data.error_code <= 172 && !wide) return freeRoute(from, to, true);
+  if (data.error_code >= 170 && data.error_code <= 172) throw new Error(`no truck road found near ${from.label || 'the start'} or ${to.label || 'the destination'}. Check the pins on the map; if one is in the wrong place, pick that address from the list as you type`);
   if (!r.ok) throw new Error(data.error || `routing server is busy (${r.status}), try again`);
   return valhallaToRoutes(data);
 }
@@ -252,6 +256,9 @@ $('routeForm').addEventListener('submit', async (ev) => {
     const fromText = $('from').value.trim();
     const from = $('from').picked || (fromText ? await geocode(fromText, nearPoint()) : await here());
     const to = $('to').picked || await geocode($('to').value.trim(), from);
+    endsLayer.clearLayers(); routeLayer.clearLayers();
+    for (const [p, t] of [[from, 'A'], [to, 'B']]) L.marker([p.lat, p.lon], { icon: pin('end', t), title: p.label || '' }).addTo(endsLayer);
+    map.fitBounds([[from.lat, from.lon], [to.lat, to.lon]], { padding: [40, 40] });
     const found = await findRoutes(from, to);
     routes = found.routes;
     if (!routes.length) throw new Error('no truck-legal route found');
