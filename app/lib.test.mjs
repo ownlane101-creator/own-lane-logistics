@@ -49,3 +49,26 @@ test('nextStepIndex advances past reached steps only', () => {
 });
 import { fmtDist } from './lib.js';
 test('fmtDist', () => { assert.equal(fmtDist(100), '350 ft'); assert.equal(fmtDist(1609.344), '1.0 mi'); });
+
+import { decodePolyline6, valhallaToRoutes, valhallaBody } from './lib.js';
+// Encode for tests (inverse of decodePolyline6).
+const enc = (pts) => { let s = '', pl = 0, pn = 0; const e = (v) => { v = v < 0 ? ~(v << 1) : v << 1; while (v >= 0x20) { s += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; } s += String.fromCharCode(v + 63); };
+  for (const [la, lo] of pts) { const a = Math.round(la * 1e6), b = Math.round(lo * 1e6); e(a - pl); e(b - pn); pl = a; pn = b; } return s; };
+test('decodePolyline6 round-trips', () => {
+  const pts = [[39.1, -94.6], [39.123456, -94.654321], [38.9, -95.1]];
+  assert.deepEqual(decodePolyline6(enc(pts)).map((p) => [p.latitude, p.longitude]), pts);
+});
+test('valhallaToRoutes maps trip + alternates', () => {
+  const trip = (n) => ({ trip: { summary: { length: 10, time: 600 * n }, legs: [{ shape: enc([[39, -94], [39.1, -94.1]]),
+    maneuvers: [{ instruction: 'Drive east.', begin_shape_index: 0, length: 9.5 }, { instruction: 'You have arrived.', begin_shape_index: 1, length: 0 }] }] } });
+  const r = valhallaToRoutes({ ...trip(1), alternates: [trip(2)] });
+  assert.equal(r.length, 2);
+  assert.ok(Math.abs(r[0].summary.lengthInMeters - 16093.44) < 0.01);
+  assert.equal(r[1].summary.travelTimeInSeconds, 1200);
+  assert.equal(r[0].guidance.instructions[1].routeOffsetInMeters, Math.round(9.5 * 1609.344));
+  assert.deepEqual(r[0].guidance.instructions[1].point, { latitude: 39.1, longitude: -94.1 });
+});
+test('valhallaBody uses tonnes and truck costing', () => {
+  const b = valhallaBody({ lat: 1, lon: 2 }, { lat: 3, lon: 4 }, { heightM: 4.1148, weightKg: 36287, lengthM: 21.95, hazmat: '' });
+  assert.equal(b.costing, 'truck'); assert.equal(b.costing_options.truck.weight, 36.3); assert.equal(b.costing_options.truck.hazmat, false);
+});
