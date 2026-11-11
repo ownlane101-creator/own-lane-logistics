@@ -77,10 +77,14 @@ export function haversine(a, b) {
 }
 
 // Index of the step to show next: skip steps the truck is within `reachedM` of, or already past.
-export function nextStepIndex(steps, pos, from = 0, reachedM = 40) {
-  let i = from;
-  while (i < steps.length - 1 && haversine(pos, steps[i].at) < reachedM) i++;
-  return i;
+// Distance from the route's start to each of its points.
+export const cumulative = (line) => line.reduce((acc, p, i) => (acc.push(i ? acc[i - 1] + haversine(line[i - 1], p) : 0), acc), []);
+
+// The next turn is the first one further along the route than the truck, not the nearest
+// turn point: at highway speed a GPS fix can skip right past a turn point.
+export function nextTurn(steps, along) {
+  const i = steps.findIndex((s) => s.off > along + 15);
+  return i < 0 ? steps.length - 1 : i;
 }
 
 export const fmtDist = (m) => m < 320 ? `${Math.max(50, Math.round(m / 0.3048 / 50) * 50)} ft` : fmtMiles(m);

@@ -36,16 +36,21 @@ test('tomtomRouteUrl sets truck params', () => {
 
 test('fmtTime', () => { assert.equal(fmtTime(3900), '1 h 5 min'); assert.equal(fmtTime(600), '10 min'); });
 
-import { haversine, nextStepIndex } from './lib.js';
+import { haversine, nextTurn } from './lib.js';
 test('haversine: Memphis to Nashville is about 315 km straight-line', () => {
   const d = haversine({ lat: 35.1495, lon: -90.049 }, { lat: 36.1627, lon: -86.7816 });
   assert.ok(d > 310000 && d < 320000, d);
 });
-test('nextStepIndex advances past reached steps only', () => {
-  const steps = [{ at: { lat: 0, lon: 0 } }, { at: { lat: 0, lon: 0.0001 } }, { at: { lat: 0, lon: 1 } }];
-  assert.equal(nextStepIndex(steps, { lat: 0, lon: 0 }), 2);
-  assert.equal(nextStepIndex(steps, { lat: 0, lon: 0.5 }), 0);
-  assert.equal(nextStepIndex(steps, { lat: 0, lon: 1 }, 2), 2);
+test('nextTurn goes by distance along the route, so a skipped turn point never sticks', () => {
+  const steps = [{ off: 0 }, { off: 4300 }, { off: 9000 }];
+  assert.equal(nextTurn(steps, 0), 1);       // just started: the first real turn is next
+  assert.equal(nextTurn(steps, 4400), 2);    // drove past turn 1 without touching its point
+  assert.equal(nextTurn(steps, 9500), 2);    // at the end: stay on the last step
+});
+import { cumulative } from './lib.js';
+test('cumulative', () => {
+  const c = cumulative([{ lat: 0, lon: 0 }, { lat: 0, lon: 0.01 }, { lat: 0, lon: 0.02 }]);
+  assert.equal(c[0], 0); assert.ok(Math.abs(c[2] - 2 * c[1]) < 1e-6 && c[1] > 1100 && c[1] < 1120);
 });
 import { fmtDist } from './lib.js';
 test('fmtDist', () => { assert.equal(fmtDist(100), '350 ft'); assert.equal(fmtDist(1609.344), '1.0 mi'); });
