@@ -72,3 +72,28 @@ test('valhallaBody uses tonnes and truck costing', () => {
   const b = valhallaBody({ lat: 1, lon: 2 }, { lat: 3, lon: 4 }, { heightM: 4.1148, weightKg: 36287, lengthM: 21.95, hazmat: '' });
   assert.equal(b.costing, 'truck'); assert.equal(b.costing_options.truck.weight, 36.3); assert.equal(b.costing_options.truck.hazmat, false);
 });
+
+import { pickNearest, splitTrip, joinRoutes, photonLabel } from './lib.js';
+const feat = (lon, lat, cc, props = {}) => ({ geometry: { coordinates: [lon, lat] }, properties: { countrycode: cc, ...props } });
+test('pickNearest prefers the US/Canada match nearest the driver', () => {
+  const kc = { lat: 39.1, lon: -94.6 };
+  const r = pickNearest([feat(-118.2, 34.0, 'US'), feat(13.4, 52.5, 'DE'), feat(-94.7, 39.0, 'US', { housenumber: '3300', street: 'Espresso Way', city: 'Kansas City', state: 'Kansas' })], kc);
+  assert.equal(r.label, '3300 Espresso Way, Kansas City, Kansas');
+  assert.equal(pickNearest([], kc), null);
+  assert.equal(photonLabel({ name: 'Pilot Travel Center', city: 'Joplin', state: 'Missouri' }), 'Pilot Travel Center, Joplin, Missouri');
+});
+test('splitTrip keeps short trips whole and splits long hauls', () => {
+  const kc = { lat: 39.1, lon: -94.6 }, la = { lat: 34.05, lon: -118.24 };
+  assert.equal(splitTrip(kc, { lat: 38.6, lon: -90.2 }).length, 2);
+  const pts = splitTrip(kc, la);
+  assert.ok(pts.length >= 4, pts.length);
+  assert.deepEqual(pts[0], kc); assert.deepEqual(pts.at(-1), la);
+});
+test('joinRoutes adds up distance, time and step offsets', () => {
+  const piece = (a, b) => ({ summary: { lengthInMeters: 1000, travelTimeInSeconds: 60 }, legs: [{ points: [a, b] }],
+    guidance: { instructions: [{ message: 'Go', routeOffsetInMeters: 0 }, { message: 'Arrive', routeOffsetInMeters: 1000 }] } });
+  const r = joinRoutes([piece(1, 2), piece(2, 3)]);
+  assert.equal(r.summary.lengthInMeters, 2000); assert.equal(r.summary.travelTimeInSeconds, 120);
+  assert.deepEqual(r.guidance.instructions.map((s) => s.routeOffsetInMeters), [0, 1000, 2000]);
+  assert.equal(r.legs[0].points.length, 4);
+});

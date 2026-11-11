@@ -132,3 +132,43 @@ export function valhallaToRoutes(json) {
     };
   });
 }
+
+// ---- address search helpers (Photon results) ----
+export const photonLabel = (p = {}) =>
+  [[p.housenumber, p.street].filter(Boolean).join(' ') || p.name, p.city || p.county, p.state].filter(Boolean).join(', ');
+
+// Many towns share street names, so take the US/Canada match closest to `near`.
+export function rankPlaces(features, near) {
+  const hits = (features || []).map((f) => ({
+    lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
+    label: photonLabel(f.properties), cc: f.properties?.countrycode,
+  }));
+  const pool = hits.filter((h) => h.cc === 'US' || h.cc === 'CA');
+  const seen = new Set();
+  return (pool.length ? pool : hits).sort((a, b) => haversine(a, near) - haversine(b, near))
+    .filter((h) => !seen.has(h.label) && seen.add(h.label));
+}
+export const pickNearest = (features, near) => rankPlaces(features, near)[0] || null;
+
+// The free router caps one request at 1500 km of driving, so long hauls are routed in pieces.
+// shortcut: pieces meet at straight-line points snapped to the nearest road, which can add small detours; use TomTom (no cap) when a key is set.
+export function splitTrip(from, to, maxStraightM = 900000) {
+  const n = Math.max(1, Math.ceil(haversine(from, to) / maxStraightM));
+  return Array.from({ length: n + 1 }, (_, i) => ({ lat: from.lat + (to.lat - from.lat) * i / n, lon: from.lon + (to.lon - from.lon) * i / n }));
+}
+
+// Join consecutive route pieces into one route.
+export function joinRoutes(pieces) {
+  let off = 0;
+  const points = [], instructions = [];
+  pieces.forEach((r, i) => {
+    points.push(...r.legs[0].points);
+    const steps = r.guidance.instructions.filter((s, k, all) => i === pieces.length - 1 || k < all.length - 1); // drop mid-trip "arrived"
+    for (const s of steps) instructions.push({ ...s, routeOffsetInMeters: s.routeOffsetInMeters + off });
+    off += r.summary.lengthInMeters;
+  });
+  return {
+    summary: { lengthInMeters: off, travelTimeInSeconds: pieces.reduce((t, r) => t + r.summary.travelTimeInSeconds, 0) },
+    legs: [{ points }], guidance: { instructions },
+  };
+}
