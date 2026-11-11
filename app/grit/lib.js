@@ -39,3 +39,22 @@ export function bestStreak(log) {
   }
   return best;
 }
+
+export const STATS = { body: 'Body', mind: 'Mind', social: 'Social', grit: 'Grit' };
+
+// XP per stat. catOf(id) maps a log entry id to a stat key.
+export function statXP(log, catOf) {
+  const out = { body: 0, mind: 0, social: 0, grit: 0 };
+  for (const day of Object.values(log)) for (const [id, xp] of Object.entries(day)) out[catOf(id) in out ? catOf(id) : 'grit'] += xp;
+  return out;
+}
+
+const dayNum = d => Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5);
+// Same pick for everyone on a given day/week; rotates through the list.
+export const pickDaily = (list, d) => list[dayNum(d) % list.length];
+export const weekId = d => Math.floor((dayNum(d) + 3) / 7); // weeks start Monday
+export const pickWeekly = (list, d) => list[weekId(d) % list.length];
+
+// Has a log entry with this id anywhere in the given days?
+export const doneIn = (log, id, days) => days.some(d => log[dayKey(d)]?.[id] !== undefined);
+export const weekDays = d => { const off = (d.getDay() + 6) % 7; return Array.from({ length: 7 }, (_, i) => addDays(d, i - off)); };
