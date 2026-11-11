@@ -254,6 +254,7 @@ const here = () => new Promise((ok, fail) => {
   const check = () => {
     if (lastFix && Date.now() - fixAt < 120000) return ok(lastFix);
     if (Date.now() - started > 15000) return fail(new Error(`couldn't get your location (${GEO_WHY[geoErr?.code] || 'no answer from the phone'}). Type a starting address for now`));
+    status(`Finding your location… ${Math.ceil((15000 - (Date.now() - started)) / 1000)}s`);
     setTimeout(check, 250);
   };
   check();
