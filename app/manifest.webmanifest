@@ -1,0 +1,9 @@
+{
+  "name": "Own Lane Logistics",
+  "short_name": "Own Lane",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f2238",
+  "theme_color": "#0f2238",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

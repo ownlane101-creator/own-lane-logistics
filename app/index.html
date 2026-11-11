@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f2238">
+<title>Own Lane Logistics</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <img src="icon.svg" alt="" width="32" height="32">
+  <h1>Own Lane <span>Logistics</span></h1>
+  <button id="settingsBtn" aria-label="Truck settings">⚙ Truck</button>
+</header>
+
+<main>
+  <div id="map" aria-label="Map"></div>
+
+  <section id="panel">
+    <form id="routeForm">
+      <label>From <input id="from" placeholder="Current location" autocomplete="off"></label>
+      <label>To <input id="to" placeholder="City, address or ZIP" required autocomplete="off"></label>
+      <button type="submit">Truck route</button>
+    </form>
+    <div id="status" role="status"></div>
+    <div id="routes"></div>
+    <ol id="steps"></ol>
+  </section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h2>Your truck</h2>
+    <fieldset class="row">
+      <legend>Height</legend>
+      <label><input name="hFt" type="number" min="6" max="16" value="13" required> ft</label>
+      <label><input name="hIn" type="number" min="0" max="11" value="6" required> in</label>
+    </fieldset>
+    <label>Gross weight <input name="weightLb" type="number" min="1000" max="200000" step="100" value="80000" required> lb</label>
+    <label>Length <input name="lengthFt" type="number" min="0" max="120" value="72"> ft</label>
+    <label>Hazmat
+      <select name="hazmat">
+        <option value="">None</option>
+        <option value="USHazmatClass1">Class 1 Explosives</option>
+        <option value="USHazmatClass2">Class 2 Gases</option>
+        <option value="USHazmatClass3">Class 3 Flammable liquids</option>
+        <option value="USHazmatClass4">Class 4 Flammable solids</option>
+        <option value="USHazmatClass5">Class 5 Oxidizers</option>
+        <option value="USHazmatClass6">Class 6 Poisons</option>
+        <option value="USHazmatClass7">Class 7 Radioactive</option>
+        <option value="USHazmatClass8">Class 8 Corrosives</option>
+        <option value="USHazmatClass9">Class 9 Miscellaneous</option>
+      </select>
+    </label>
+    <label>TomTom API key
+      <input name="key" autocomplete="off" placeholder="Needed for routing and traffic">
+    </label>
+    <p class="hint">Get a free key at developer.tomtom.com. It's saved only on this device.</p>
+    <menu><button value="save">Save</button></menu>
+  </form>
+</dialog>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
