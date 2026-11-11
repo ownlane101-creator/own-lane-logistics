@@ -1,5 +1,5 @@
 import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restrictionsQuery,
-  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, keepLikely, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex, snapToLine, bearing } from './lib.js';
+  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, keepLikely, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextTurn, cumulative, snapToLine, bearing } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 // Public map-data servers are often busy, so try each in turn.
@@ -332,7 +332,7 @@ function startDriving() {
   document.body.classList.add('navigating'); $('nav').hidden = false; map.invalidateSize();
   const truckPin = L.marker([steps[0].at.lat, steps[0].at.lon], { icon: L.divIcon({ className: '', iconSize: null,
     html: '<div class="pin truck"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 2 20 21 12 17 4 21z" fill="#fff"/></svg></div>' }), zIndexOffset: 1000 }).addTo(routeLayer);
-  const line = routeLine(r);
+  const line = routeLine(r), cum = cumulative(line);
   let shown = null, heading = 0, anim = 0;
   // Glide the arrow to each new fix and keep the map moving with it, instead of jumping once a second.
   const glide = (to, ms = 900) => {
@@ -346,9 +346,9 @@ function startDriving() {
     };
     anim = requestAnimationFrame(step);
   };
-  let idx = 0, spoken = -1, warned = -1;
+  let spoken = -1, warned = -1;
   // Show the first turn right away instead of a blank banner while GPS warms up.
-  $('navDist').textContent = 'Finding you…'; $('navMsg').textContent = steps[0].msg;
+  $('navDist').textContent = 'Finding you…'; $('navMsg').textContent = steps[nextTurn(steps, 0)].msg;
   $('navEta').textContent = `${fmtMiles(total)} · ${fmtTime(r.summary.travelTimeInSeconds)}`;
   const onPos = (raw, speed) => {
     const snapped = snapToLine(raw, line), pos = snapped.dist < 50 ? snapped : raw; // off the route: show where they really are
@@ -359,10 +359,11 @@ function startDriving() {
     const zoom = globalThis.DEMO_ZOOM || (speed > 20 ? 15 : speed > 9 ? 16 : 17);
     if (!shown || map.getZoom() !== zoom) { map.setView([pos.lat, pos.lon], zoom, { animate: false }); shown = pos; truckPin.setLatLng([pos.lat, pos.lon]); }
     else glide(pos);
-    idx = nextStepIndex(steps, pos, idx);
-    const d = haversine(pos, steps[idx].at), left = Math.max(0, total - steps[idx].off) + d;
-    $('navDist').textContent = fmtDist(d);
-    $('navMsg').textContent = steps[idx].msg;
+    const k = snapped.i || 1, along = cum[k - 1] + haversine(line[k - 1], snapped);
+    const idx = nextTurn(steps, along), off = snapped.dist > 100;
+    const d = Math.max(0, steps[idx].off - along), left = Math.max(0, total - along);
+    $('navDist').textContent = off ? 'Off route' : fmtDist(d);
+    $('navMsg').textContent = off ? `Head back to the blue line. Next: ${steps[idx].msg}` : steps[idx].msg;
     $('navEta').textContent = `${fmtMiles(left)} · ${fmtTime(r.summary.travelTimeInSeconds * left / total)} left`;
     if (spoken !== idx) { spoken = idx; say(`In ${fmtDist(d).replace('mi', 'miles').replace('ft', 'feet')}, ${steps[idx].msg}`); }
     else if (d < 300 && warned !== idx) { warned = idx; say(steps[idx].msg); }
