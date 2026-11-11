@@ -54,3 +54,4 @@ body.navigating header, body.navigating #panel { display: none; }
 .suggest button { display: block; width: 100%; text-align: left; background: #fff; color: var(--fg); font-weight: 600; border-radius: 0; padding: 10px 12px; }
 .suggest button:active, .suggest button:focus-visible { background: #eef2f6; }
 .suggest small { display: block; color: var(--muted); font-weight: 400; }
+#ver { display: block; color: #8a99a8; font-size: 11px; margin-top: 6px; }
