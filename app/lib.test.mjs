@@ -146,3 +146,12 @@ test('snapToLine puts a wobbly fix back on the road', () => {
   assert.ok(s.dist > 20 && s.dist < 25);
   assert.ok(Math.abs(bearing(line[0], line[1]) - 90) < 0.1);
 });
+
+import { dueCallout } from './lib.js';
+test('dueCallout speaks each reminder once, tightest first', () => {
+  assert.equal(dueCallout(5000), null);
+  assert.equal(dueCallout(3000), 3300);
+  assert.equal(dueCallout(1500, 3300), 1700);
+  assert.equal(dueCallout(1400, 1700), null);  // already said "1 mile"
+  assert.equal(dueCallout(60, 1700), 80);      // jumped past the quarter mile: go straight to "now"
+});

@@ -1,5 +1,5 @@
 import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restrictionsQuery,
-  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, keepLikely, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextTurn, cumulative, snapToLine, bearing } from './lib.js';
+  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, keepLikely, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextTurn, cumulative, dueCallout, snapToLine, bearing } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 // Public map-data servers are often busy, so try each in turn.
@@ -41,6 +41,7 @@ const map = L.map('map', { zoomControl: true }).setView([39.5, -98.35], 5);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19, attribution: '© OpenStreetMap contributors',
 }).addTo(map);
+const resizeMap = () => map.invalidateSize();
 
 const places = L.layerGroup().addTo(map);
 const restrictions = L.layerGroup().addTo(map);
@@ -260,6 +261,11 @@ const here = () => new Promise((ok, fail) => {
   check();
 });
 
+// Destinations the driver corrected by dragging the B pin, keyed by what they typed.
+const spotKey = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+let spots = {};
+try { spots = JSON.parse(localStorage.getItem('ownlane.spots') || '{}'); } catch {}
+
 let routes = [], selected = 0;
 function showRoute(i) {
   selected = i;
@@ -286,10 +292,20 @@ $('routeForm').addEventListener('submit', async (ev) => {
     status(fromText ? 'Looking up the From address…' : 'Finding your location…');
     const from = $('from').picked || (fromText ? await geocode(fromText, nearPoint()) : await here());
     status('Looking up the To address…');
-    const to = $('to').picked || await geocode($('to').value.trim(), from);
+    const toText = $('to').value.trim();
+    const to = $('to').picked || spots[spotKey(toText)] || await geocode(toText, from);
     status('Planning a truck-safe route…');
     endsLayer.clearLayers(); routeLayer.clearLayers();
-    for (const [p, t] of [[from, 'A'], [to, 'B']]) L.marker([p.lat, p.lon], { icon: pin('end', t), title: p.label || '' }).addTo(endsLayer);
+    L.marker([from.lat, from.lon], { icon: pin('end', 'A'), title: from.label || '' }).addTo(endsLayer);
+    // The free map often lacks the exact building number, so the driver can drag B onto the real
+    // entrance; that spot is remembered for this address and the route is planned again.
+    L.marker([to.lat, to.lon], { icon: pin('end', 'B'), title: to.label || '', draggable: true }).addTo(endsLayer)
+      .on('dragend', (e) => {
+        const { lat, lng } = e.target.getLatLng();
+        $('to').picked = spots[spotKey(toText)] = { lat, lon: lng, label: to.label || toText };
+        try { localStorage.setItem('ownlane.spots', JSON.stringify(spots)); } catch {}
+        $('routeForm').requestSubmit();
+      });
     map.fitBounds([[from.lat, from.lon], [to.lat, to.lon]], { padding: [40, 40] });
     const found = await findRoutes(from, to);
     routes = found.routes;
@@ -302,7 +318,7 @@ $('routeForm').addEventListener('submit', async (ev) => {
       </button>`;
     }).join('');
     document.querySelectorAll('.route').forEach((b) => (b.onclick = () => showRoute(Number(b.dataset.i))));
-    status(`${to.label ? `To ${to.label}. ` : ''}Route for ${mToFtIn(truckHeightM())} tall, ${settings.weightLb.toLocaleString()} lb${settings.hazmat ? ', hazmat' : ''}. Avoids low bridges and roads closed to trucks.${found.traffic ? '' : found.badKey ? ' Your TomTom key was rejected, so live traffic is off.' : ''}`);
+    status(`${to.label ? `To ${to.label}. ` : ''}Route for ${mToFtIn(truckHeightM())} tall, ${settings.weightLb.toLocaleString()} lb${settings.hazmat ? ', hazmat' : ''}. Avoids low bridges and roads closed to trucks. B in the wrong spot? Hold it and drag it to the entrance.${found.traffic ? '' : found.badKey ? ' Your TomTom key was rejected, so live traffic is off.' : ''}`);
     showRoute(0);
     $('routes').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); // results sit below the map on phones
   } catch (e) { status(`Sorry, ${e.name === 'AbortError' ? 'the map server took too long to answer. Tap Truck route to try again' : e.message}.`, true); }
@@ -310,7 +326,9 @@ $('routeForm').addEventListener('submit', async (ev) => {
 
 // ---- driving mode: follow the truck and call out each turn ----
 const routeLine = (r) => r.legs.flatMap((l) => l.points.map((p) => ({ lat: p.latitude, lon: p.longitude })));
-const say = (text) => { try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch {} };
+const say = (text) => { try { const u = new SpeechSynthesisUtterance(text); u.lang = 'en-US'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch {} };
+const spokenDist = (m) => fmtDist(m).replace('mi', 'miles').replace('ft', 'feet').replace(/^1\.0 miles$/, '1 mile');
+const lc = (t) => t.charAt(0).toLowerCase() + t.slice(1);
 let stopWatch = null;
 
 function geoWatch(onPos) {
@@ -329,24 +347,33 @@ function startDriving() {
   const steps = (r.guidance?.instructions || []).filter((s) => s.point)
     .map((s) => ({ msg: s.message, off: s.routeOffsetInMeters, at: { lat: s.point.latitude, lon: s.point.longitude } }));
   if (!steps.length) { status('This route has no turn list.', true); return; }
-  document.body.classList.add('navigating'); $('nav').hidden = false; map.invalidateSize();
+  document.body.classList.add('navigating'); $('nav').hidden = false; resizeMap();
   const truckPin = L.marker([steps[0].at.lat, steps[0].at.lon], { icon: L.divIcon({ className: '', iconSize: null,
     html: '<div class="pin truck"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 2 20 21 12 17 4 21z" fill="#fff"/></svg></div>' }), zIndexOffset: 1000 }).addTo(routeLayer);
   const line = routeLine(r), cum = cumulative(line);
-  let shown = null, heading = 0, anim = 0;
+  let shown = null, heading = 0, anim = 0, follow = true, wantZoom = 0, idle;
+  // Touching the map stops it following the truck, so the driver can pinch and look around;
+  // Re-center (or 20 s without touching) brings it back.
+  const recenter = () => { follow = true; wantZoom = 0; $('recenter').hidden = true; };
+  const lookAround = () => { follow = false; $('recenter').hidden = false; clearTimeout(idle); idle = setTimeout(recenter, 20000); };
+  const mapEl = map.getContainer();
+  for (const ev of ['touchstart', 'mousedown', 'wheel']) mapEl.addEventListener(ev, lookAround, { passive: true });
+  $('recenter').onclick = recenter;
   // Glide the arrow to each new fix and keep the map moving with it, instead of jumping once a second.
   const glide = (to, ms = 900) => {
     const from = shown || to, t0 = performance.now();
     cancelAnimationFrame(anim);
     const step = (now) => {
       const f = Math.min(1, (now - t0) / ms), p = [from.lat + (to.lat - from.lat) * f, from.lon + (to.lon - from.lon) * f];
-      truckPin.setLatLng(p); map.panTo(p, { animate: false });
+      truckPin.setLatLng(p); if (follow) map.panTo(p, { animate: false });
       shown = { lat: p[0], lon: p[1] };
       if (f < 1) anim = requestAnimationFrame(step);
     };
     anim = requestAnimationFrame(step);
   };
-  let spoken = -1, warned = -1;
+  let spoken = -1, lastMark = Infinity;
+  // iPhone only lets a page talk after a tap, so say the first words now, while handling the Start tap.
+  say(`Starting route. ${steps[nextTurn(steps, 0)].msg}`);
   // Show the first turn right away instead of a blank banner while GPS warms up.
   $('navDist').textContent = 'Finding you…'; $('navMsg').textContent = steps[nextTurn(steps, 0)].msg;
   $('navEta').textContent = `${fmtMiles(total)} · ${fmtTime(r.summary.travelTimeInSeconds)}`;
@@ -357,7 +384,8 @@ function startDriving() {
     truckPin.getElement()?.firstChild?.style.setProperty('transform', `rotate(${heading}deg)`);
     // Zoom out at highway speed so the next turn is on screen sooner.
     const zoom = globalThis.DEMO_ZOOM || (speed > 20 ? 15 : speed > 9 ? 16 : 17);
-    if (!shown || map.getZoom() !== zoom) { map.setView([pos.lat, pos.lon], zoom, { animate: false }); shown = pos; truckPin.setLatLng([pos.lat, pos.lon]); }
+    // Only change zoom when the speed band changes, so a driver's own zoom isn't undone every second.
+    if (follow && (!shown || zoom !== wantZoom)) { wantZoom = zoom; map.setView([pos.lat, pos.lon], zoom, { animate: false }); shown = pos; truckPin.setLatLng([pos.lat, pos.lon]); }
     else glide(pos);
     const k = snapped.i || 1, along = cum[k - 1] + haversine(line[k - 1], snapped);
     const idx = nextTurn(steps, along), off = snapped.dist > 100;
@@ -365,17 +393,21 @@ function startDriving() {
     $('navDist').textContent = off ? 'Off route' : fmtDist(d);
     $('navMsg').textContent = off ? `Head back to the blue line. Next: ${steps[idx].msg}` : steps[idx].msg;
     $('navEta').textContent = `${fmtMiles(left)} · ${fmtTime(r.summary.travelTimeInSeconds * left / total)} left`;
-    if (spoken !== idx) { spoken = idx; say(`In ${fmtDist(d).replace('mi', 'miles').replace('ft', 'feet')}, ${steps[idx].msg}`); }
-    else if (d < 300 && warned !== idx) { warned = idx; say(steps[idx].msg); }
+    if (spoken !== idx) { spoken = idx; lastMark = Infinity; }
+    const mark = off ? null : dueCallout(d, lastMark);
+    if (mark) { lastMark = mark; say(mark === 80 ? steps[idx].msg : `In ${mark === 1700 ? '1 mile' : mark === 450 ? 'a quarter mile' : spokenDist(d)}, ${lc(steps[idx].msg)}`); }
   };
   const stop = (globalThis.simulateDrive || geoWatch)(onPos, line);
-  stopWatch = () => { stop(); cancelAnimationFrame(anim); };
+  stopWatch = () => {
+    stop(); cancelAnimationFrame(anim); clearTimeout(idle); $('recenter').hidden = true;
+    for (const ev of ['touchstart', 'mousedown', 'wheel']) mapEl.removeEventListener(ev, lookAround);
+  };
 }
 
 function endDriving() {
   stopWatch?.(); stopWatch = null;
   try { speechSynthesis.cancel(); } catch {}
-  document.body.classList.remove('navigating'); $('nav').hidden = true; map.invalidateSize();
+  document.body.classList.remove('navigating'); $('nav').hidden = true; resizeMap();
   showRoute(selected);
 }
 $('startNav').onclick = startDriving;

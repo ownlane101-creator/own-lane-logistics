@@ -87,6 +87,10 @@ export function nextTurn(steps, along) {
   return i < 0 ? steps.length - 1 : i;
 }
 
+// Spoken reminders before each turn, like a truck GPS: about 2 miles, 1 mile, a quarter mile, then now.
+export const CALLOUTS = [3300, 1700, 450, 80];
+// The reminder due at distance d (metres), given the last mark already spoken for this turn.
+export const dueCallout = (d, lastMark = Infinity) => CALLOUTS.filter((m) => d <= m && m < lastMark).pop() ?? null;
 export const fmtDist = (m) => m < 320 ? `${Math.max(50, Math.round(m / 0.3048 / 50) * 50)} ft` : fmtMiles(m);
 
 // ---- free, keyless truck routing (Valhalla on the OpenStreetMap community server) ----
