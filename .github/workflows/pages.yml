@@ -18,16 +18,16 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: node --test app/lib.test.mjs app/grit/lib.test.mjs
+      - run: node --test app/lib.test.mjs app/grindset/lib.test.mjs
       # Phones cache app files; a new name per release makes them load the latest code.
       - run: |
           V=${GITHUB_SHA::7}
           sed -i "s#src=\"app.js\"#src=\"app.js?v=$V\"#; s#href=\"style.css\"#href=\"style.css?v=$V\"#; s#Version dev#Version $V#" app/index.html
           sed -i "s#from './lib.js'#from './lib.js?v=$V'#" app/app.js
           grep -q "app.js?v=$V" app/index.html && grep -q "lib.js?v=$V" app/app.js
-          sed -i "s#src=\"app.js\"#src=\"app.js?v=$V\"#" app/grit/index.html
-          sed -i "s#from './lib.js'#from './lib.js?v=$V'#; s#from './content.js'#from './content.js?v=$V'#" app/grit/app.js
-          grep -q "app.js?v=$V" app/grit/index.html && grep -q "lib.js?v=$V" app/grit/app.js && grep -q "content.js?v=$V" app/grit/app.js
+          sed -i "s#src=\"app.js\"#src=\"app.js?v=$V\"#" app/grindset/index.html
+          sed -i "s#from './lib.js'#from './lib.js?v=$V'#; s#from './content.js'#from './content.js?v=$V'#" app/grindset/app.js
+          grep -q "app.js?v=$V" app/grindset/index.html && grep -q "lib.js?v=$V" app/grindset/app.js && grep -q "content.js?v=$V" app/grindset/app.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app

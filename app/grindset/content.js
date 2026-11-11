@@ -1,4 +1,4 @@
-// Built-in content. All wording is original to Grit.
+// Built-in content. All wording is original to Grindset.
 export const DAILY = [
   ['No phone for the first 30 minutes after you wake up', 'grit', 25],
   ['Do 50 push-ups today (any number of sets)', 'body', 30],
