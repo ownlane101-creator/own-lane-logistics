@@ -139,17 +139,34 @@ export function valhallaToRoutes(json) {
 export const photonLabel = (p = {}) =>
   [[p.housenumber, p.street].filter(Boolean).join(' ') || p.name, p.city || p.county, p.state].filter(Boolean).join(', ');
 
-// Many towns share street names, so take the US/Canada match closest to `near`.
-export function rankPlaces(features, near) {
-  const hits = (features || []).map((f) => ({
-    lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
-    label: photonLabel(f.properties), cc: f.properties?.countrycode,
-  }));
-  const pool = hits.filter((h) => h.cc === 'US' || h.cc === 'CA');
+const STATES = { AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut',
+  DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana',
+  IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan',
+  MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey',
+  NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania',
+  RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia',
+  WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming' };
+
+// The US state a driver typed: a full name anywhere, or a 2-letter code as the last word ("York pa", "York, PA 17406").
+export function stateIn(text = '') {
+  const t = text.replace(/\b\d{5}(-\d{4})?\b/g, '').trim();
+  const full = Object.values(STATES).sort((a, b) => b.length - a.length).find((n) => new RegExp(`\\b${n}\\b`, 'i').test(t));
+  return full || STATES[(t.match(/([a-z]{2})\W*$/i)?.[1] || '').toUpperCase()] || null;
+}
+
+// Drivers here run US/Canada only, so overseas matches are dropped; a typed state narrows it further.
+// Many towns share street names, so what's left is sorted nearest first.
+export function keepLikely(places, near, text) {
+  const home = places.filter((h) => h.cc === 'US' || h.cc === 'CA');
+  const st = stateIn(text), inState = st ? home.filter((h) => h.state === st) : [];
   const seen = new Set();
-  return (pool.length ? pool : hits).sort((a, b) => haversine(a, near) - haversine(b, near))
+  return (inState.length ? inState : home).sort((a, b) => haversine(a, near) - haversine(b, near))
     .filter((h) => !seen.has(h.label) && seen.add(h.label));
 }
+export const rankPlaces = (features, near, text) => keepLikely((features || []).map((f) => ({
+  lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
+  label: photonLabel(f.properties), cc: f.properties?.countrycode, state: f.properties?.state,
+})), near, text);
 export const pickNearest = (features, near) => rankPlaces(features, near)[0] || null;
 
 // The free router caps one request at 1500 km of driving, so long hauls are routed in pieces.
@@ -180,6 +197,6 @@ export const withoutHouseNumber = (q) => q.replace(/^\s*\d+[a-z]?(-\d+)?\s+/i, '
 
 // Nominatim results -> same shape as rankPlaces items.
 export const nominatimPlaces = (rows) => (rows || []).map((r) => ({
-  lat: +r.lat, lon: +r.lon, cc: (r.address?.country_code || '').toUpperCase(),
+  lat: +r.lat, lon: +r.lon, cc: (r.address?.country_code || '').toUpperCase(), state: r.address?.state,
   label: r.display_name.split(', ').slice(0, 4).join(', '),
 }));

@@ -1,5 +1,5 @@
 import { ftInToM, mToFtIn, parseMaxHeight, classifyPlace, placesQuery, restrictionsQuery,
-  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
+  tomtomRouteUrl, VALHALLA, valhallaBody, valhallaToRoutes, pickNearest, rankPlaces, keepLikely, withoutHouseNumber, nominatimPlaces, splitTrip, joinRoutes, fmtMiles, fmtTime, fmtDist, haversine, nextStepIndex } from './lib.js';
 
 const $ = (id) => document.getElementById(id);
 // Public map-data servers are often busy, so try each in turn.
@@ -157,12 +157,12 @@ async function lookupPlaces(text, near, signal, full = true) {
       if (r.ok) places = ((await r.json()).results || []).map((x) => ({ lat: x.position.lat, lon: x.position.lon, label: x.address.freeformAddress }));
     } catch (e) { if (signal?.aborted) throw e; }
   }
-  const photonSafe = async (q) => { try { return rankPlaces(await photon(q, near, signal), near); } catch (e) { if (signal?.aborted) throw e; return []; } };
+  const photonSafe = async (q) => { try { return rankPlaces(await photon(q, near, signal), near, text); } catch (e) { if (signal?.aborted) throw e; return []; } };
   if (!places.length) places = await photonSafe(text);
   if (!places.length && full) { // Nominatim's rules forbid search-as-you-type, so only on the final lookup
     try {
       const r = await fetchT(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=us,ca&q=${encodeURIComponent(text)}`, { signal });
-      if (r.ok) places = nominatimPlaces(await r.json()).sort((a, b) => haversine(a, near) - haversine(b, near));
+      if (r.ok) places = keepLikely(nominatimPlaces(await r.json()), near, text);
     } catch (e) { if (signal?.aborted) throw e; }
   }
   const street = withoutHouseNumber(text);

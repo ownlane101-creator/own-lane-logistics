@@ -108,6 +108,23 @@ test('withoutHouseNumber', () => {
   assert.equal(withoutHouseNumber('I-70 Exit 415'), 'I-70 Exit 415');
 });
 test('nominatimPlaces', () => {
-  const [p] = nominatimPlaces([{ lat: '39.9', lon: '-76.7', display_name: '3300, Espresso Way, York, York County, Pennsylvania, 17406, United States', address: { country_code: 'us' } }]);
-  assert.deepEqual(p, { lat: 39.9, lon: -76.7, cc: 'US', label: '3300, Espresso Way, York, York County' });
+  const [p] = nominatimPlaces([{ lat: '39.9', lon: '-76.7', display_name: '3300, Espresso Way, York, York County, Pennsylvania, 17406, United States', address: { country_code: 'us', state: 'Pennsylvania' } }]);
+  assert.deepEqual(p, { lat: 39.9, lon: -76.7, cc: 'US', state: 'Pennsylvania', label: '3300, Espresso Way, York, York County' });
+});
+
+import { stateIn, rankPlaces as rank2 } from './lib.js';
+test('stateIn reads the typed state', () => {
+  assert.equal(stateIn('3300 espresso way York pa'), 'Pennsylvania');
+  assert.equal(stateIn('3300 Espresso Way, York, PA 17406'), 'Pennsylvania');
+  assert.equal(stateIn('1118 Cedarcroft rd Baltimore md'), 'Maryland');
+  assert.equal(stateIn('Main St, New York'), 'New York');
+  assert.equal(stateIn('Espresso Way'), null);
+});
+test('rankPlaces drops overseas hits and keeps the typed state', () => {
+  const near = { lat: 39.36, lon: -76.61 };
+  const r = rank2([feat(4.4, 51.2, 'BE', { name: 'Espresso', city: 'Antwerp' }),
+    feat(-76.6, 39.3, 'US', { street: 'Espresso Way', city: 'Baltimore', state: 'Maryland' }),
+    feat(-76.78, 39.93, 'US', { housenumber: '3300', street: 'Espresso Way', city: 'York', state: 'Pennsylvania' })], near, '3300 Espresso Way, York, PA');
+  assert.deepEqual(r.map((x) => x.state), ['Pennsylvania']);
+  assert.deepEqual(rank2([feat(4.4, 51.2, 'BE', { name: 'Espresso' })], near, 'espresso'), []);
 });
